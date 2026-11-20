@@ -1,0 +1,15 @@
+# Blueprint do Render: um único serviço web serve o jogo (build do Vite) e o WebSocket (/ws).
+# As salas ficam na memória do servidor, então use só 1 instância.
+services:
+  - type: web
+    name: chapatron
+    runtime: node
+    plan: free
+    region: virginia
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

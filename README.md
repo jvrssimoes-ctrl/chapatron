@@ -28,6 +28,15 @@ npm start
 Ele usa a variável `PORT` (padrão 3001), então funciona direto em hospedagens Node como Render, Railway ou Fly.io
 (comando de build: `npm install && npm run build`, comando de start: `npm start`).
 
+**No Render (grátis, sempre com o mesmo link):**
+
+1. Suba o projeto para um repositório no GitHub.
+2. No [Render](https://render.com), vá em **New → Blueprint**, escolha o repositório e confirme. O `render.yaml` já configura tudo.
+3. Em alguns minutos o jogo fica em `https://chapatron-XXXX.onrender.com`. Cada `git push` publica de novo sozinho.
+
+No plano grátis o servidor dorme após 15 min sem ninguém e leva ~1 min pra acordar no primeiro acesso.
+Publicar uma versão nova ou o servidor dormir encerra as salas em andamento.
+
 **Com Docker** (qualquer VPS ou hospedagem de containers):
 
 ```bash
