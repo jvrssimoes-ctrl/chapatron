@@ -130,7 +130,7 @@ export function augmentTipHtml(id: string) {
   return `<div class="tt-head" style="border-color:${TIER_COLOR[a.tier]}">${augImg(id, 'ii big')}<b>${esc(a.name)}</b><small>${TIER_NAME[a.tier]}</small></div><div class="tt-ab">${esc(a.desc)}</div>`;
 }
 
-function traitTipHtml(id: TraitId, count: number) {
+export function traitTipHtml(id: TraitId, count: number) {
   const t = TRAITS[id];
   const tiers = t.breakpoints.map((b, i) => `<div class="tt-tier ${count >= b ? 'on' : ''}">(${b}) ${esc(traitText(t, i))}</div>`).join('');
   const units = Object.values(UNITS).filter((u) => !u.pve && u.traits.includes(id))
@@ -150,6 +150,30 @@ export function toast(msg: string, kind: 'info' | 'good' | 'bad' = 'info') {
   if (kind === 'bad') sfx('error');
   setTimeout(() => el.classList.add('out'), 2600);
   setTimeout(() => el.remove(), 3100);
+}
+
+/** Vida caiu: número flutuante e tremida no contador. */
+export function hpHit(amount: number) {
+  const box = $('myHp');
+  box.classList.remove('hit'); void box.offsetWidth; box.classList.add('hit');
+  const r = box.getBoundingClientRect();
+  const f = document.createElement('span');
+  f.className = 'hp-float';
+  f.textContent = `-${amount} ❤️`;
+  f.style.left = `${r.left + r.width / 2}px`;
+  f.style.top = `${r.bottom + 4}px`;
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 1400);
+}
+
+/** Faixa grande no meio-alto da tela (evolução, conquistas...). */
+export function banner(html: string, kind: 'gold' | 'silver' | 'green' = 'gold', ms = 2200) {
+  const el = document.createElement('div');
+  el.className = `banner ${kind}`;
+  el.innerHTML = html;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add('out'), ms);
+  setTimeout(() => el.remove(), ms + 500);
 }
 
 export function chatLine(from: string, msg: string) {

@@ -14,6 +14,7 @@ import { Post, loadQuality, saveQuality, type Quality } from './post';
 import { buildWorld, type World } from './world';
 import { Vfx } from './vfx';
 import { itemCanvas } from '../itemIcons';
+import { onSkin, skin } from '../skins';
 
 export interface HoverInfo {
   defId: string;
@@ -116,6 +117,7 @@ export class Scene3D {
   private world: World | null = null;
   private vfx!: Vfx;
   private gapMats: THREE.MeshStandardMaterial[] = [];
+  private skinMats: { neon?: THREE.MeshStandardMaterial; gold?: THREE.MeshStandardMaterial } = {};
   private tiles: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>[][] = [];
   private benchPads: THREE.Mesh[] = [];
   private units = new Map<string, UV>();
@@ -213,6 +215,8 @@ export class Scene3D {
     const neon = new THREE.Mesh(new RoundedBoxGeometry(15.0, 0.06, 13.8, 4, 0.03), new THREE.MeshStandardMaterial({ color: '#5dff7a', emissive: '#5dff7a', emissiveIntensity: 2.2 }));
     neon.position.y = -0.62;
     s.add(neon);
+    this.skinMats.neon = neon.material as THREE.MeshStandardMaterial;
+    this.skinMats.gold = gold as THREE.MeshStandardMaterial;
     // runas brilhando nas laterais
     const runeMat = new THREE.MeshStandardMaterial({ color: '#b98bff', emissive: '#b98bff', emissiveIntensity: 2.0 });
     for (let i = 0; i < 12; i++) {
@@ -233,6 +237,11 @@ export class Scene3D {
     glowEnemy.position.set(0, 0.0, -3.0);
     s.add(glowMine, glowEnemy);
     this.gapMats = [glowMine.material, glowEnemy.material];
+    onSkin((sk) => {
+      this.skinMats.neon?.color.set(sk.neon); this.skinMats.neon?.emissive.set(sk.neon);
+      this.skinMats.gold?.color.set(sk.trim);
+      this.gapMats[0]?.emissive.set(sk.gapMine); this.gapMats[1]?.emissive.set(sk.gapEnemy);
+    });
 
     // ---- banco ----
     const benchBase = new THREE.Mesh(new RoundedBoxGeometry(19.0, 0.5, 2.8, 5, 0.22), platMat);
@@ -705,6 +714,19 @@ export class Scene3D {
 
   private starBurst(pos: THREE.Vector3, star: number) {
     const color = star >= 3 ? '#ffd23f' : '#e3ecf7';
+    // coluna de luz subindo + anel no chão
+    for (let i = 0; i < (star >= 3 ? 36 : 22); i++) {
+      this.emit(pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.5, Math.random() * 0.4, (Math.random() - 0.5) * 0.5)), {
+        vel: new THREE.Vector3(0, 3 + Math.random() * 3, 0), spread: 0.2, life: 0.9 + Math.random() * 0.5, s0: 0.5, s1: 0.1,
+        color: star >= 3 ? '#fff2a8' : '#c8f0ff', alpha: 0.9, additive: true,
+      });
+    }
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      this.emit(pos.clone().add(new THREE.Vector3(Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3)), {
+        vel: new THREE.Vector3(Math.cos(a) * 3.2, 0.2, Math.sin(a) * 3.2), spread: 0.1, life: 0.7, s0: 0.3, s1: 0.5, color, alpha: 0.8, additive: true,
+      });
+    }
     for (let i = 0; i < 40; i++) {
       const a = (i / 40) * Math.PI * 2;
       this.emit(pos.clone().add(new THREE.Vector3(0, 0.6, 0)), {
@@ -1143,7 +1165,8 @@ export class Scene3D {
       const m = this.tiles[r][c].material;
       const mine = r >= BOARD_ROWS;
       const pulse = 0.5 + Math.sin(t * 1.6 + r * 0.6 + c * 0.4) * 0.5;
-      let color = mine ? (sc ? '#6f8fd0' : (r + c) % 2 ? '#5c9e78' : '#6aad86') : combat ? '#a86a9a' : (r + c) % 2 ? '#7a6aae' : '#8676ba';
+      const sk = skin();
+      let color = mine ? (sc ? '#6f8fd0' : sk.mine[(r + c) % 2 ? 0 : 1]) : combat ? '#a86a9a' : sk.enemy[(r + c) % 2 ? 0 : 1];
       let glow = 0.02 + pulse * 0.04;
       if (hl && hl.zone === 'board' && hl.r === r && hl.c === c) { color = valid ? '#7dff9a' : '#ff5d5d'; glow = 0.9; }
       m.color.set(color);
@@ -1205,7 +1228,9 @@ export class Scene3D {
         ctx.textAlign = 'center';
         if (f.k === 'text') {
           ctx.globalAlpha = 1 - p * p;
-          ctx.font = `900 ${unit * 1.5 * f.size}px Nunito, sans-serif`;
+          // números grandes "estouram" ao aparecer
+          const popK = f.size > 1.1 ? 1 + Math.max(0, 1 - p * 5) * 0.55 : 1;
+          ctx.font = `900 ${unit * 1.5 * f.size * popK}px Nunito, sans-serif`;
           ctx.lineWidth = 4;
           ctx.strokeStyle = 'rgba(0,0,0,0.85)';
           const x = s.x + f.dx * unit * 4, y = s.y - p * unit * 3.5;
@@ -1249,20 +1274,62 @@ export class Scene3D {
       const won = rp.winner === rp.mySide;
       const draw = rp.winner === -1;
       const k = Math.min(1, (now - rp.start - rp.duration - 300) / 300);
+      // entra "carimbando": começa grande e assenta
+      const pop = 1 + (1 - k) * 0.6 + Math.sin(Math.min(1, k * 1.4) * Math.PI) * 0.08;
       const mid = this.project(new THREE.Vector3(0, 1, 0));
+      const color = draw ? '#ffe066' : won ? '#5dff7a' : '#ff5d73';
       ctx.save();
       ctx.globalAlpha = k;
+      // faixa atrás do texto
+      const bandH = unit * 7.5;
+      const grad = ctx.createLinearGradient(0, mid.y - bandH / 2, 0, mid.y + bandH / 2);
+      grad.addColorStop(0, 'rgba(10,5,20,0)');
+      grad.addColorStop(0.5, 'rgba(10,5,20,0.62)');
+      grad.addColorStop(1, 'rgba(10,5,20,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, mid.y - bandH / 2 - unit * 1.2, this.W, bandH);
+      ctx.translate(mid.x, mid.y);
+      ctx.scale(pop, pop);
       ctx.font = `${unit * 4.2}px Bungee, sans-serif`;
-      ctx.fillStyle = draw ? '#ffe066' : won ? '#5dff7a' : '#ff5d73';
-      ctx.shadowColor = ctx.fillStyle;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
       ctx.shadowBlur = 30;
       ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(10,5,20,0.8)';
       const txt = draw ? 'EMPATE' : won ? 'VITÓRIA!' : 'DERROTA';
-      ctx.strokeText(txt, mid.x, mid.y);
-      ctx.fillText(txt, mid.x, mid.y);
+      ctx.strokeText(txt, 0, 0);
+      ctx.fillText(txt, 0, 0);
       ctx.restore();
+      // destaque do combate: robô que mais causou dano do seu lado
+      const mvp = this.combatMvp(rp);
+      if (mvp) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, (now - rp.start - rp.duration - 700) / 300));
+        ctx.font = `800 ${unit * 1.35}px Nunito, sans-serif`;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(10,5,20,0.85)';
+        ctx.fillStyle = '#ffe9a8';
+        const line2 = `👑 Destaque: ${mvp.name} · ${mvp.dmg.toLocaleString('pt-BR')} de dano`;
+        ctx.strokeText(line2, mid.x, mid.y + unit * 2.6);
+        ctx.fillText(line2, mid.x, mid.y + unit * 2.6);
+        ctx.restore();
+      }
     }
+  }
+
+  private mvpCache: { rp: unknown; v: { name: string; dmg: number } | null } = { rp: null, v: null };
+  private combatMvp(rp: NonNullable<Scene3D['replay']>) {
+    if (this.mvpCache.rp === rp) return this.mvpCache.v;
+    const dmg = new Map<number, number>();
+    for (const e of rp.events) if (e.k === 'dmg' && e.s !== undefined) dmg.set(e.s, (dmg.get(e.s) ?? 0) + e.amt);
+    let best: { name: string; dmg: number } | null = null;
+    for (const [uid, d] of dmg) {
+      const u = rp.units.get(uid);
+      if (!u || !u.mine) continue;
+      if (!best || d > best.dmg) best = { name: UNITS[u.init.defId].name, dmg: d };
+    }
+    this.mvpCache = { rp, v: best };
+    return best;
   }
 
   private itemRow(x: number, y: number, items: string[], unit: number) {

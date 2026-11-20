@@ -27,7 +27,9 @@ const server = createServer((req, res) => {
   let file = normalize(join(DIST, decodeURIComponent(url)));
   if (!file.startsWith(DIST)) { res.writeHead(403).end(); return; }
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, 'index.html');
-  res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+  // arquivos do build têm hash no nome: podem ficar em cache "pra sempre"; o index.html nunca
+  const cache = file.includes(`${normalize('/assets/')}`) ? 'public, max-age=31536000, immutable' : 'no-cache';
+  res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'cache-control': cache });
   createReadStream(file).pipe(res);
 });
 

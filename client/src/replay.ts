@@ -139,7 +139,7 @@ export class Replay {
         if (e.dodge) { text('esquivou!', '#c9c2ff', 0.8); break; }
         u.flashAt = now;
         u.hitAt = now;
-        if (e.amt > 0) text(String(e.amt), e.crit ? '#ffcf3f' : e.magic ? '#d27aff' : '#ffffff', e.crit ? 1.35 : e.amt > 300 ? 1.15 : 0.9);
+        if (e.amt > 0) text(e.crit ? `${e.amt}!` : String(e.amt), e.crit ? '#ffcf3f' : e.magic ? '#d27aff' : '#ffffff', e.crit ? 1.35 : e.amt > 300 ? 1.15 : 0.9);
         if (e.crit) this.snd('hitCrit', 90);
         else if (e.magic) this.snd('hitMagic', 60);
         else this.snd('hit', 50);

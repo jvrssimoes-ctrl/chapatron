@@ -1,10 +1,15 @@
 import './style.css';
 import { Scene3D } from './three/scene';
-import { chatLine, esc, hideTip, initHud, overSell, renderHud, setLeftTab, setSellMode, showTip, tickHud, toast, unitTipHtml } from './hud';
+import { UNITS } from '../../shared/data';
+import { banner, chatLine, esc, hideTip, hpHit, initHud, overSell, renderHud, setLeftTab, setSellMode, showTip, tickHud, toast, unitTipHtml } from './hud';
 import { net } from './net';
 import { isMuted, setMusic, sfx, toggleMute } from './sfx';
 import { store } from './store';
 import { avatarHtml, confetti, gameoverHtml, initMenuFx, initParade } from './screens';
+import { closeGuide, isGuideOpen, openGuide, toggleGuide } from './guide';
+import { checkTips } from './tips';
+import { initEmotes, showEmote } from './emotes';
+import { closeProfile, isProfileOpen, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -111,11 +116,15 @@ $('copyBtn').onclick = async () => {
   catch { toast(inviteLink(), 'info'); }
 };
 $('leaveBtn').onclick = () => { location.href = location.pathname; };
+$('guideBtn').onclick = () => openGuide();
+$('menuGuideBtn').onclick = () => openGuide();
+$('profileBtn').onclick = () => openProfile();
 $('menuMute').onclick = () => { $('menuMute').textContent = toggleMute() ? '🔇' : '🔊'; };
 
 // ---------------- rede ----------------
 
 let prevStars = new Map<string, number>();
+let prevHp = 100;
 let prevPhase = '';
 
 net.onStatus = (ok) => $('connStatus').classList.toggle('hidden', ok);
@@ -141,6 +150,7 @@ net.on((msg) => {
       store.state = msg;
       store.phaseEndsAt = performance.now() + msg.endsIn;
       if (screen !== 'game') show('game');
+      trackState();
       if (msg.phase !== prevPhase) {
         if (msg.phase === 'planning' && prevPhase) sfx('phase');
         if (msg.phase === 'planning') { store.scoutId = null; setLeftTab('traits'); }
@@ -148,15 +158,21 @@ net.on((msg) => {
       }
       setMusic(msg.phase === 'combat' ? 'combat' : msg.phase === 'gameover' ? 'menu' : 'planning');
       // evoluções
-      let upgraded = false;
-      for (const u of msg.me.units) {
-        const before = prevStars.get(u.id);
-        if (before !== undefined && u.star > before) upgraded = true;
+      if (!firstState) {
+        for (const u of msg.me.units) {
+          const before = prevStars.get(u.id);
+          if (before === undefined || u.star <= before) continue;
+          const d = UNITS[u.defId];
+          banner(`<span class="bn-stars">${'★'.repeat(u.star)}</span><b>${esc(d.name)}</b><small>${u.star === 3 ? 'NÍVEL MÁXIMO DA BRISA!' : 'evoluiu!'}</small>`, u.star === 3 ? 'gold' : 'silver');
+          onStarUp(u.star);
+        }
+        if (msg.me.hp < prevHp) hpHit(prevHp - msg.me.hp);
       }
-      if (upgraded && !firstState) sfx('star');
+      prevHp = msg.me.hp;
       prevStars = new Map(msg.me.units.map((u) => [u.id, u.star]));
       if (msg.phase !== 'gameover') $('gameover').classList.add('hidden');
       renderHud();
+      checkTips();
       break;
     }
     case 'combat':
@@ -165,10 +181,13 @@ net.on((msg) => {
       store.scoutId = null;
       setLeftTab('dmg');
       if (!msg.elapsed) sfx('combat');
+      setTimeout(checkTips, 1500);
+      if (!msg.elapsed) trackCombat();
       break;
     case 'gameover': {
       const me = msg.ranking.find((r) => r.id === store.youId);
       const isHost = store.state?.hostId === store.youId;
+      if (me) trackGameOver(me.place, msg.ranking.length);
       $('gameover').innerHTML = gameoverHtml(msg.ranking, store.youId, isHost, esc);
       $('gameover').classList.remove('hidden');
       if (me && me.place <= 4) confetti($('gameover'), me.place === 1 ? 7000 : 3500);
@@ -179,6 +198,9 @@ net.on((msg) => {
     }
     case 'chat':
       chatLine(msg.from, msg.msg);
+      break;
+    case 'emote':
+      showEmote(msg.from, msg.e);
       break;
     case 'toast':
       toast(msg.msg, msg.kind ?? 'info');
@@ -197,6 +219,9 @@ net.on((msg) => {
 // ---------------- teclado ----------------
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isGuideOpen()) { closeGuide(); return; }
+  if (e.key === 'Escape' && isProfileOpen()) { closeProfile(); return; }
+  if ((e.target as HTMLElement).tagName !== 'INPUT' && e.key.toLowerCase() === 'h') { toggleGuide(); return; }
   if (screen !== 'game' || (e.target as HTMLElement).tagName === 'INPUT') return;
   const k = e.key.toLowerCase();
   if (e.repeat && k !== 'd') return;
@@ -234,6 +259,7 @@ initHud({
   },
 });
 net.connect();
+initEmotes();
 initMenuFx();
 show('menu');
 if (urlRoom && nameInput.value) {

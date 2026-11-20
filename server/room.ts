@@ -12,6 +12,7 @@ import { simulate, type SideInput } from './combat';
 import { botChoose, botPlan } from './bot';
 
 const MAX_PLAYERS = 8;
+const EMOTE_COUNT = 8;
 const PLANNING_MS = 30000;
 const FIRST_PLANNING_MS = 20000;
 const CHOICE_EXTRA_MS = 10000;
@@ -45,6 +46,8 @@ export class Player {
   alive = true;
   place = 0;
   ready = false;
+  lastChatAt = 0;
+  lastEmoteAt = 0;
   lastOpp: string | null = null;
   opponentId: string | null = null;
 
@@ -140,9 +143,14 @@ export class Room {
   disconnect(p: Player) {
     p.ws = null;
     if (this.phase === 'lobby') {
-      this.players = this.players.filter((x) => x !== p);
-      this.reassignHost();
+      // dá um tempinho pra quem só recarregou a página voltar sem perder a vaga (nem o posto de anfitrião)
       this.broadcastLobby();
+      setTimeout(() => {
+        if (this.phase !== 'lobby' || p.connected || !this.players.includes(p)) return;
+        this.players = this.players.filter((x) => x !== p);
+        this.reassignHost();
+        this.broadcastLobby();
+      }, 20000);
     } else {
       this.broadcastState();
     }
@@ -218,7 +226,18 @@ export class Room {
       case 'chat': {
         const text = String(msg.msg ?? '').slice(0, 200).trim();
         if (!text) return;
+        const now = Date.now();
+        if (now - p.lastChatAt < 700) return this.toast(p, 'Calma, parceiro. Uma mensagem de cada vez.');
+        p.lastChatAt = now;
         for (const x of this.players) x.send({ t: 'chat', from: p.name, msg: text });
+        return;
+      }
+      case 'emote': {
+        const e = Math.floor(Number(msg.e));
+        const now = Date.now();
+        if (!(e >= 0 && e < EMOTE_COUNT) || now - p.lastEmoteAt < 1200) return;
+        p.lastEmoteAt = now;
+        for (const x of this.players) x.send({ t: 'emote', from: p.id, e });
         return;
       }
     }

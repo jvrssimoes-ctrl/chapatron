@@ -28,6 +28,15 @@ npm start
 Ele usa a variável `PORT` (padrão 3001), então funciona direto em hospedagens Node como Render, Railway ou Fly.io
 (comando de build: `npm install && npm run build`, comando de start: `npm start`).
 
+**Com Docker** (qualquer VPS ou hospedagem de containers):
+
+```bash
+docker build -t chapatron .
+docker run -p 3001:3001 chapatron
+```
+
+O container tem verificação de saúde em `/health`. Se a conexão cair, o jogo reconecta sozinho e você volta pra mesma sala e partida (a vaga fica guardada).
+
 ## Estrutura
 
 | Pasta | O que tem |
@@ -47,7 +56,7 @@ Ele usa a variável `PORT` (padrão 3001), então funciona direto em hospedagens
 ## Sinergias
 
 - **Verticais** (2/4/6): Verdinhos, Fumaceiros, Laricados, Enferrujados, Cósmicos, Bolados — e Atiradores/Brisados (2/4). Ficam muito fortes quando você fecha tudo.
-- **Horizontais** (2/3 ou 2/4, poucas unidades): Sorrateiros, Gurus, DJs do Baile, Hackers, Reciclados — bônus rápidos pra misturar. Vários robôs têm 3 sinergias.
+- **Horizontais** (2/3 ou 2/4, poucas unidades): Sorrateiros, Gurus, DJs do Baile, Hackers, Reciclados, Neons, Paranoicos — bônus rápidos pra misturar. Vários robôs têm 3 sinergias.
 
 ## Balanceamento
 
@@ -55,4 +64,10 @@ Ele usa a variável `PORT` (padrão 3001), então funciona direto em hospedagens
 
 ## Atalhos
 
-`D` rolar loja · `F` comprar XP · `E` vender robô sob o mouse · `Enter` chat · `Esc` parar de espiar
+`1`–`5` comprar da loja · `D` rolar loja · `F` comprar XP · `E` vender robô sob o mouse · `Q` espiar próximo jogador · `Tab` sinergias/dano · `H` guia · `Enter` chat · `Esc` voltar
+
+## Guia, perfil e conquistas
+
+- **Guia da Brisa** (`H` ou 📖): como jogar, todas as sinergias, robôs (com filtros), tabela de receitas de itens e aprimoramentos. Na primeira partida aparecem dicas apontando cada parte da tela.
+- **Perfil** (menu → 🏅): partidas, vitórias, colocação média, robôs favoritos, histórico e 13 conquistas. Algumas conquistas liberam **skins de tabuleiro**. Fica salvo no navegador.
+- **Emotes** rápidos no chat aparecem ao lado do jogador e grandes sobre o tabuleiro.

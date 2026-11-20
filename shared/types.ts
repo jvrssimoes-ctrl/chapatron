@@ -216,7 +216,8 @@ export type ClientMsg =
   | { t: 'xp' }
   | { t: 'lock' }
   | { t: 'ready' }
-  | { t: 'chat'; msg: string };
+  | { t: 'chat'; msg: string }
+  | { t: 'emote'; e: number };
 
 export type ServerMsg =
   | { t: 'joined'; room: string; youId: string }
@@ -236,5 +237,6 @@ export type ServerMsg =
   | { t: 'combat'; round: number; mySide: 0 | 1; opponentName: string; pve: boolean; result: CombatResult; elapsed?: number }
   | { t: 'gameover'; ranking: { id: string; name: string; place: number; isBot: boolean }[] }
   | { t: 'chat'; from: string; msg: string }
+  | { t: 'emote'; from: string; e: number }
   | { t: 'toast'; msg: string; kind?: 'info' | 'good' | 'bad' }
   | { t: 'error'; msg: string };
