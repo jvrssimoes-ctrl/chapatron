@@ -1,0 +1,116 @@
+import type { ItemDef, ItemStats } from './types';
+
+// ======================= COMPONENTES =======================
+// 8 componentes básicos. Dois componentes juntos = 1 item completo (36 combinações).
+
+export const ITEMS: Record<string, ItemDef> = {};
+
+function comp(id: string, name: string, icon: string, stats: ItemStats, desc: string) {
+  ITEMS[id] = { id, name, icon, component: true, stats, desc };
+}
+
+comp('isqueiro', 'Isqueiro', '🔥', { ad: 10 }, '+10% Dano de Ataque');
+comp('seda', 'Seda Turbo', '📜', { as: 10 }, '+10% Velocidade de Ataque');
+comp('cachimbo', 'Cachimbo', '🚬', { ap: 10 }, '+10 Poder de Habilidade');
+comp('colirio', 'Colírio', '💧', { mana: 15 }, '+15 Mana inicial');
+comp('lataria', 'Lataria', '🥫', { armor: 20 }, '+20 Armadura');
+comp('aluminio', 'Papel Alumínio', '🥈', { mr: 20 }, '+20 Resistência Mágica');
+comp('pochete', 'Pochete', '🎒', { hp: 150 }, '+150 Vida');
+comp('luvas', 'Luvas de Lã', '🧤', { crit: 20 }, '+20% Chance de Crítico');
+
+export const COMPONENTS = ['isqueiro', 'seda', 'cachimbo', 'colirio', 'lataria', 'aluminio', 'pochete', 'luvas'];
+
+// ======================= ITENS COMPLETOS =======================
+
+function full(id: string, a: string, b: string, name: string, icon: string, desc: string, extra: ItemStats = {}) {
+  const stats: ItemStats = {};
+  for (const src of [ITEMS[a].stats, ITEMS[b].stats, extra]) {
+    for (const [k, v] of Object.entries(src) as [keyof ItemStats, number][]) stats[k] = (stats[k] ?? 0) + v;
+  }
+  ITEMS[id] = { id, name, icon, component: false, recipe: [a, b], stats, desc };
+}
+
+// isqueiro
+full('lancachamas', 'isqueiro', 'isqueiro', 'Lança-Chamas', '🧨', 'Causa +20% de dano.');
+full('bazuca', 'isqueiro', 'seda', 'Bazuca de Pipoca', '🍿', 'Causa +25% de dano a alvos com mais de 1600 de vida máxima.');
+full('isqueiroplasma', 'isqueiro', 'cachimbo', 'Isqueiro de Plasma', '🔫', 'Ganha 20% de omnivampirismo (cura 20% de todo dano causado).');
+full('cristal', 'isqueiro', 'colirio', 'Cristal Lunar', '🔮', 'Ataques concedem +5 de mana extra.');
+full('tampa', 'isqueiro', 'lataria', 'Tampa de Panela', '🍳', 'Ao cair para 60% de vida: escudo de 25% da vida máxima e +20% de velocidade de ataque.');
+full('facaeletrica', 'isqueiro', 'aluminio', 'Faca Elétrica', '🔪', '12% de omnivampirismo. Ao cair para 40% de vida, ganha escudo de 25% da vida máxima.');
+full('pocheteraivosa', 'isqueiro', 'pochete', 'Pochete Raivosa', '😤', 'Abaixo de 60% de vida, ganha +40% de Dano de Ataque.');
+full('tesoura', 'isqueiro', 'luvas', 'Tesoura de Ouro', '✂️', 'Habilidades podem dar crítico. +15% de dano crítico.');
+// seda
+full('megaseda', 'seda', 'seda', 'Mega Seda', '🌪️', 'Cada ataque concede +5% de velocidade de ataque (acumula).');
+full('turbo', 'seda', 'cachimbo', 'Turbinador', '🚀', 'Após usar a habilidade, ganha +60% de velocidade de ataque por 5s.');
+full('tocha', 'seda', 'colirio', 'Tocha Estática', '🌩️', 'A cada 3 ataques, um raio atinge 3 inimigos causando 70 de dano mágico e reduzindo 30% da RM deles.');
+full('coleteseda', 'seda', 'lataria', 'Colete de Seda', '🦺', 'Cada ataque concede +2% de Dano de Ataque e Poder de Habilidade (até +25%).');
+full('rede', 'seda', 'aluminio', 'Rede de Pesca', '🕸️', 'Ataques acertam um inimigo extra próximo com 55% do dano.');
+full('caixadesom', 'seda', 'pochete', 'Caixa de Som', '🔊', 'Aliados na mesma linha ganham +15% de velocidade de ataque.');
+full('mira', 'seda', 'luvas', 'Mira a Laser', '🔦', 'Ataques reduzem 30% da armadura do alvo por 3s.');
+// cachimbo
+full('cachimbogig', 'cachimbo', 'cachimbo', 'Cachimbo Gigante', '🌋', '+30 de Poder de Habilidade extra.', { ap: 30 });
+full('garrafa', 'cachimbo', 'colirio', 'Garrafa da Brisa', '🍾', 'A cada 5s, ganha +20 de Poder de Habilidade.');
+full('escudocosmico', 'cachimbo', 'lataria', 'Escudo Cósmico', '🪐', 'Começa com escudo de 30% da vida máxima por 8s. Quando acaba, ganha +30 de Poder de Habilidade.');
+full('ionizador', 'cachimbo', 'aluminio', 'Ionizador', '🧲', 'Inimigos a até 2 hexes têm a RM reduzida em 30%.');
+full('morteiro', 'cachimbo', 'pochete', 'Morteiro de Brasa', '☄️', 'Dano queima o alvo em 10% da vida máxima dele ao longo de 5s e reduz 33% das curas recebidas.');
+full('luvaarcana', 'cachimbo', 'luvas', 'Luva Arcana', '💎', 'Habilidades podem dar crítico. +15% de chance de crítico.', { crit: 15 });
+// colírio
+full('coroa', 'colirio', 'colirio', 'Coroa do Rei da Brisa', '👑', 'Mana máxima -10. Após usar a habilidade, recupera 10 de mana.');
+full('manto', 'colirio', 'lataria', 'Manto Congelante', '❄️', 'Inimigos a até 2 hexes atacam 20% mais devagar.');
+full('radio', 'colirio', 'aluminio', 'Rádio Comunitário', '📻', 'A cada 5s, cura todos os aliados em 12% da vida que falta.');
+full('mochila', 'colirio', 'pochete', 'Mochila de Lanche', '🥪', 'A cada 2s, cura 5% da vida que falta.');
+full('maodestino', 'colirio', 'luvas', 'Mão do Destino', '🖐️', '+15% de dano e 15% de omnivampirismo.');
+// lataria
+full('caixadagua', 'lataria', 'lataria', "Caixa d'Água", '🛢️', 'Recebe 8% menos dano de ataques. Ao ser atingido, causa 80 de dano mágico a inimigos adjacentes (2s de recarga).');
+full('cadeado', 'lataria', 'aluminio', 'Cadeado Velho', '🗝️', 'Ganha +12 de armadura e RM para cada inimigo mirando nele.');
+full('parachoque', 'lataria', 'pochete', 'Para-Choque', '🚗', 'A cada 2s, queima inimigos adjacentes em 60 de dano mágico e reduz 33% das curas deles.');
+full('coracao', 'lataria', 'luvas', 'Coração de Lata', '💗', 'Recebe 15% menos dano (25% acima de 50% de vida).');
+// alumínio
+full('chapeu', 'aluminio', 'aluminio', 'Chapéu de Alumínio', '🎩', 'A cada 2s, cura 5% da vida máxima.');
+full('abafador', 'aluminio', 'pochete', 'Abafador', '🌫️', 'Inimigos a até 2 hexes têm a armadura reduzida em 30%.');
+full('tenis', 'aluminio', 'luvas', 'Tênis de Mola', '👟', 'Imune a atordoamento nos primeiros 15s. A cada 2s ganha +3% de velocidade de ataque.');
+// pochete
+full('marmita', 'pochete', 'pochete', 'Marmita Gigante', '🍱', '+12% de vida máxima.');
+full('maleta', 'pochete', 'luvas', 'Maleta de Ferramentas', '🧰', 'Causa +20% de dano a alvos com escudo.');
+// luvas
+full('maoleve', 'luvas', 'luvas', 'Mão Leve', '🎁', 'Ocupa os 3 espaços. A cada combate, equipa 2 itens completos aleatórios.');
+
+export const COMPLETED = Object.values(ITEMS).filter((i) => !i.component).map((i) => i.id);
+
+const RECIPES = new Map<string, string>();
+for (const it of Object.values(ITEMS)) {
+  if (it.recipe) {
+    RECIPES.set(`${it.recipe[0]}+${it.recipe[1]}`, it.id);
+    RECIPES.set(`${it.recipe[1]}+${it.recipe[0]}`, it.id);
+  }
+}
+
+export function combine(a: string, b: string): string | null {
+  return RECIPES.get(`${a}+${b}`) ?? null;
+}
+
+export function isComponent(id: string) {
+  return !!ITEMS[id]?.component;
+}
+
+/** Quantos espaços um conjunto de itens ocupa (Mão Leve ocupa 3). */
+export function itemSlots(items: string[]) {
+  return items.reduce((n, i) => n + (i === 'maoleve' ? 3 : 1), 0);
+}
+
+const STAT_LABEL: Record<keyof ItemStats, [string, string]> = {
+  ad: ['% DA', '🔥'],
+  as: ['% VA', '📜'],
+  ap: [' PH', '🚬'],
+  mana: [' Mana', '💧'],
+  armor: [' Armadura', '🥫'],
+  mr: [' RM', '🥈'],
+  hp: [' Vida', '🎒'],
+  crit: ['% Crítico', '🧤'],
+};
+
+export function statsText(s: ItemStats) {
+  return (Object.entries(s) as [keyof ItemStats, number][])
+    .map(([k, v]) => `+${v}${STAT_LABEL[k][0]}`)
+    .join(' · ');
+}

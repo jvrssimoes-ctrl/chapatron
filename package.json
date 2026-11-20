@@ -1,0 +1,30 @@
+{
+  "name": "chapatron",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CHAPATRON — auto-batalha de robôs na brisa, multiplayer no navegador",
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c green,magenta \"tsx watch server/index.ts --dev\" \"vite --port 5173 --strictPort\"",
+    "build": "vite build",
+    "start": "tsx server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "sim": "tsx scripts/simtest.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "three": "^0.170.0",
+    "tsx": "^4.19.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/three": "^0.170.0",
+    "@types/ws": "^8.5.13",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
