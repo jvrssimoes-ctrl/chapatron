@@ -945,3 +945,31 @@ body:has(#choice:not(.hidden)) .banner { top: 6%; }
   #traits { display: none; }
   #chat { display: none; }
 }
+
+/* ---- painel de detalhes do robô (clique direito) ---- */
+#inspect {
+  position: fixed; top: 76px; right: 262px; width: 300px; max-height: calc(100vh - 260px); overflow-y: auto; z-index: 30;
+  background: linear-gradient(180deg, rgba(28, 16, 52, 0.97), rgba(14, 8, 28, 0.97)); border: 1px solid rgba(190, 150, 255, 0.35);
+  border-radius: 14px; padding: 12px 12px 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); color: #ecdcff;
+  animation: insIn 0.18s ease-out; pointer-events: auto;
+}
+#inspect.hidden { display: none; }
+@keyframes insIn { from { opacity: 0; transform: translateX(12px); } }
+#inspect .ins-x { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 8px; border: 0; background: rgba(255, 255, 255, 0.08); color: #fff; cursor: pointer; }
+#inspect .ins-x:hover { background: rgba(255, 93, 115, 0.5); }
+#inspect .ins-gone { font: 800 11px Nunito, sans-serif; letter-spacing: 1px; text-transform: uppercase; color: #ff9db0; margin-bottom: 6px; }
+#inspect .ins-bar { position: relative; height: 16px; border-radius: 5px; background: rgba(0, 0, 0, 0.55); margin: 0 30px 5px 0; overflow: hidden; }
+#inspect .ins-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; transition: width 0.18s; }
+#inspect .ins-bar span { position: relative; display: block; text-align: center; font: 800 11px/16px Nunito, sans-serif; text-shadow: 0 1px 2px #000; }
+#inspect .ins-tip .tt-head { margin-right: 30px; }
+#inspect .ins-sec { margin: 10px 0 5px; font: 11px Bungee, sans-serif; color: #b9a6e8; letter-spacing: 1px; }
+#inspect .ins-trait { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.04); margin-bottom: 4px; }
+#inspect .ins-trait b { color: var(--c); font-size: 13px; flex: 1; }
+#inspect .ins-trait em { font-style: normal; font: 800 11px Nunito, sans-serif; padding: 1px 6px; border-radius: 6px; margin-left: 2px; background: rgba(0, 0, 0, 0.4); color: #8a7aa8; }
+#inspect .ins-trait em.on { background: var(--c); color: #120a24; }
+#inspect .ins-trait small { font-size: 11px; color: #a898c8; min-width: 54px; text-align: right; }
+#inspect .ins-item { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; }
+#inspect .ins-item img { width: 30px; height: 30px; flex: none; }
+#inspect .ins-item b { display: block; font-size: 13px; }
+#inspect .ins-item small { font-size: 11.5px; color: #c8b8e8; line-height: 1.3; }
+@media (max-width: 900px) { #inspect { right: 8px; top: 64px; width: min(300px, calc(100vw - 16px)); } }

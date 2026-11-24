@@ -58,14 +58,18 @@ O container tem verificação de saúde em `/health`. Se a conexão cair, o jogo
 ## Mecânicas (estilo TFT)
 
 - **Papéis**: 🛡️ Tanque, 🥊 Lutador, 🗡️ Assassino (salta na retaguarda), 🏹 Atirador AD, 🔮 Conjurador AP, ✚ Suporte. Atributos vêm do papel + custo; habilidades AD escalam com Dano de Ataque, as outras com Poder de Habilidade.
-- **Estágios** 1-2 … 2-1 … 7-x: rodada 7 de cada estágio é PvE (drones soltam itens), rodada 4 é o **Arsenal** (escolha um item), e em **2-1, 3-2, 4-2** você escolhe um **aprimoramento** (prata/ouro/prisma).
+- **Estágios** 1-2 … 2-1 … 7-x: rodada 7 de cada estágio é PvE (drones soltam orbes de saque que a sua Fumacinha coleta), rodada 4 é o **Carrossel** e rodada 5 é o **Arsenal** (escolha um item), e em **2-1, 3-2, 4-2** você escolhe um **aprimoramento** (prata/ouro/prisma).
 - **XP e loja** com a tabela do TFT (nível máx. 10, chances por nível, tamanho do pool).
 - **Itens**: 8 componentes → 36 itens completos (`shared/items.ts`). Arraste do banco de itens para um robô; 2 componentes no mesmo robô viram um item. Máx. 3 por robô; vender devolve os itens.
+- **Itens especiais**: 🔧 Pé de Cabra (tira todos os itens), 🔨 Reforjador da Quebrada (rerrola os itens) e 📠 Xerox Clandestino (copia um robô de custo até 4). Caem de PvE, Arsenal, Carrossel e Muambeiros.
+- **Habilidades únicas**: cada um dos 49 robôs tem sua própria mecânica (saltos, empurrões, invocações, cegueira, provocação, furtividade, reflexo, vírus que espalha, queimaduras, roubo de mana...).
+- **Carrossel** (começo do jogo e toda rodada X-4): robôs com itens girando no centro. Clique no chão para andar com a sua **Fumacinha** e encoste no robô que quiser. Quem tem menos vida é liberado primeiro, de 2 em 2.
+- **Painel do robô**: clique direito num robô para ver vida, mana, habilidade, sinergias e itens (também durante o combate).
 
 ## Sinergias
 
 - **Verticais** (2/4/6): Verdinhos, Fumaceiros, Laricados, Enferrujados, Cósmicos, Bolados — e Atiradores/Brisados (2/4). Ficam muito fortes quando você fecha tudo.
-- **Horizontais** (2/3 ou 2/4, poucas unidades): Sorrateiros, Gurus, DJs do Baile, Hackers, Reciclados, Neons, Paranoicos — bônus rápidos pra misturar. Vários robôs têm 3 sinergias.
+- **Horizontais** (2/3 ou 2/4, poucas unidades): Sorrateiros, Gurus, DJs do Baile, Hackers, Reciclados, Neons, Paranoicos, Jardineiros (invocam Mudinhas), Muambeiros (saque depois do PvP), Pirados (todo 3º ataque espirra dano) — bônus rápidos pra misturar. Vários robôs têm 3 sinergias.
 
 ## Balanceamento
 

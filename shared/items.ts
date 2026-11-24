@@ -75,7 +75,19 @@ full('maleta', 'pochete', 'luvas', 'Maleta de Ferramentas', '🧰', 'Causa +20% 
 // luvas
 full('maoleve', 'luvas', 'luvas', 'Mão Leve', '🎁', 'Ocupa os 3 espaços. A cada combate, equipa 2 itens completos aleatórios.');
 
-export const COMPLETED = Object.values(ITEMS).filter((i) => !i.component).map((i) => i.id);
+export const COMPLETED = Object.values(ITEMS).filter((i) => !i.component && !i.special).map((i) => i.id);
+
+// ======================= ITENS ESPECIAIS (consumíveis) =======================
+
+function special(id: string, name: string, icon: string, desc: string) {
+  ITEMS[id] = { id, name, icon, component: false, special: true, stats: {}, desc };
+}
+special('pedecabra', 'Pé de Cabra', '🔧', 'Arraste até um robô: arranca todos os itens dele e devolve para o banco de itens.');
+special('reforjador', 'Reforjador da Quebrada', '🔨', 'Arraste até um robô: troca os itens dele por outros aleatórios do mesmo tipo (componente por componente, completo por completo).');
+special('xerox', 'Xerox Clandestino', '📠', 'Arraste até um robô de custo 1 a 4: cria uma cópia ★ dele no banco.');
+
+export const SPECIALS = ['pedecabra', 'reforjador', 'xerox'];
+export const isSpecial = (id: string) => !!ITEMS[id]?.special;
 
 const RECIPES = new Map<string, string>();
 for (const it of Object.values(ITEMS)) {

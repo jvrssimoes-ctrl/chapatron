@@ -1,13 +1,14 @@
 import type { WebSocket } from 'ws';
 import {
-  MAX_ITEMS, MAX_LEVEL, POOL_SIZE, REROLL_COST, SHOP_ODDS, SHOP_SIZE, SHOP_UNITS, START_HP, UNITS,
-  XP_COST, XP_PER_BUY, XP_TO_LEVEL, isArmoryRound, isAugmentRound, isPveRound, sellValue,
+  MAX_ITEMS, MAX_LEVEL, POOL_SIZE, REROLL_COST, SHOP_ODDS, SHOP_SIZE, SHOP_UNITS, START_HP, TRAITS, UNITS,
+  XP_COST, XP_PER_BUY, XP_TO_LEVEL, isArmoryRound, isAugmentRound, isCarouselRound, isPveRound, sellValue,
   stageDamage, stageLabel, stageOf, survivorDamage,
 } from '../shared/data';
-import { AUGMENTS, augmentPool } from '../shared/augments';
-import { COMPLETED, COMPONENTS, ITEMS, combine, isComponent, itemSlots } from '../shared/items';
+import { AUGMENTS, augmentPool, traitBonus } from '../shared/augments';
+import { computeTraits } from '../shared/traits';
+import { COMPLETED, COMPONENTS, ITEMS, SPECIALS, combine, isComponent, isSpecial, itemSlots } from '../shared/items';
 import { BENCH_SIZE, BOARD_ROWS, COLS } from '../shared/hex';
-import type { AugTier, Choice, ClientMsg, CombatResult, Loc, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
+import type { AugTier, CarouselUnit, Choice, ClientMsg, CombatResult, Loc, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
 import { simulate, type SideInput } from './combat';
 import { botChoose, botPlan } from './bot';
 
@@ -18,6 +19,14 @@ const FIRST_PLANNING_MS = 20000;
 const CHOICE_EXTRA_MS = 10000;
 const COMBAT_PAD_MS = 2500;
 const ITEM_BENCH_MAX = 12;
+// carrossel (coordenadas do mundo 3D do cliente)
+const CAROUSEL_N = 9;
+const CAROUSEL_R = 3.0;
+const CAROUSEL_SPIN = 0.32; // rad/s
+const CAROUSEL_TICK = 100;
+const AV_R = 5.0;
+const AV_SPEED = 4.6;
+const PICK_R = 0.85;
 const BOT_NAMES = [
   'Robozão do Pântano', 'Ciborgue Lerdo', 'MC Engrenagem', 'Dona Fumacinha', 'Seu Parafuso',
   'Androide Zen', 'Capitão Larica', 'Mecha Tranquilão', 'Tia do Brownie', 'Neurônio Solto',
@@ -28,6 +37,7 @@ const newUnitId = () => `u${unitCounter++}`;
 const pick = <T>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
 const randomComponent = () => pick(COMPONENTS);
 const randomCompleted = () => pick(COMPLETED.filter((i) => i !== 'maoleve'));
+const randomSpecial = () => pick(SPECIALS);
 
 export class Player {
   ws: WebSocket | null = null;
@@ -163,6 +173,8 @@ export class Room {
 
   destroy() {
     if (this.timer) clearTimeout(this.timer);
+    if (this.carouselTick) clearInterval(this.carouselTick);
+    this.phase = 'lobby';
     this.onEmpty(this.code);
   }
 
@@ -241,6 +253,7 @@ export class Room {
         return;
       }
     }
+    if (msg.t === 'walk') { if (this.phase === 'carousel' && p.alive) this.walk(p, Number(msg.x), Number(msg.z)); return; }
     if (this.phase !== 'planning' && this.phase !== 'combat') return;
     if (!p.alive) return;
     let ok = true;
@@ -414,6 +427,7 @@ export class Room {
     const u = p.units.find((x) => x.id === unitId);
     if (!item || !u) return false;
     if (this.phase === 'combat' && u.loc.zone === 'board') { this.toast(p, 'Espera o combate acabar pra equipar quem está lutando.'); return false; }
+    if (isSpecial(item)) return this.useSpecial(p, index, u);
     if (u.items.includes('maoleve')) { this.toast(p, 'A Mão Leve já ocupa todos os espaços.'); return false; }
     if (isComponent(item)) {
       const ci = u.items.findIndex((x) => isComponent(x));
@@ -430,6 +444,47 @@ export class Room {
     u.items.push(item);
     p.itemBench.splice(index, 1);
     return true;
+  }
+
+  /** Itens especiais: Pé de Cabra, Reforjador e Xerox. */
+  useSpecial(p: Player, index: number, u: OwnedUnit): boolean {
+    const item = p.itemBench[index];
+    const name = UNITS[u.defId].name;
+    if (item === 'pedecabra' || item === 'reforjador') {
+      if (!u.items.length) { this.toast(p, ` não tem itens.`); return false; }
+    }
+    if (item === 'pedecabra') {
+      if (p.itemBench.length - 1 + u.items.length > ITEM_BENCH_MAX) { this.toast(p, 'Banco de itens lotado.'); return false; }
+      p.itemBench.splice(index, 1);
+      const back = u.items;
+      u.items = [];
+      p.giveItems(back);
+      this.toast(p, `🔧 Itens de ${name} de volta pro banco.`, 'good');
+      return true;
+    }
+    if (item === 'reforjador') {
+      p.itemBench.splice(index, 1);
+      u.items = u.items.map((it) => {
+        if (isComponent(it)) return pick(COMPONENTS.filter((c) => c !== it));
+        return pick(COMPLETED.filter((c) => c !== it && c !== 'maoleve'));
+      });
+      this.toast(p, `🔨 Reforjado: ${u.items.map((i) => ITEMS[i].icon + ' ' + ITEMS[i].name).join(', ')}`, 'good');
+      return true;
+    }
+    if (item === 'xerox') {
+      const def = UNITS[u.defId];
+      if (def.cost > 4) { this.toast(p, 'O Xerox não dá conta de robô lendário (custo 5).'); return false; }
+      if ((this.pool[u.defId] ?? 0) <= 0) { this.toast(p, `Acabaram as cópias de ${name}.`); return false; }
+      const slot = p.freeBenchSlot();
+      if (slot < 0) { this.toast(p, 'Banco lotado!'); return false; }
+      p.itemBench.splice(index, 1);
+      this.takeFromPool(u.defId);
+      p.units.push({ id: newUnitId(), defId: u.defId, star: 1, items: [], loc: { zone: 'bench', i: slot } });
+      this.toast(p, `📠 Cópia de ${name} saindo do forno!`, 'good');
+      this.tryMerge(p);
+      return true;
+    }
+    return false;
   }
 
   choose(p: Player, i: number): boolean {
@@ -507,6 +562,7 @@ export class Room {
       return { kind: 'armory', title: 'Arsenal: escolha um componente', options: opts };
     }
     const opts = COMPLETED.filter((i) => i !== 'maoleve').sort(() => Math.random() - 0.5).slice(0, 3);
+    if (Math.random() < 0.35) opts[2] = randomSpecial();
     return { kind: 'armory', title: 'Arsenal: escolha um item completo', options: opts };
   }
 
@@ -529,18 +585,184 @@ export class Room {
         itemBench: [], augments: [], choice: null, freeRerolls: 0,
         streak: 0, alive: true, place: 0, ready: false, lastOpp: null, opponentId: null,
       });
-      const ones = SHOP_UNITS.filter((d) => d.cost === 1);
-      const gift = pick(ones);
-      this.takeFromPool(gift.id);
-      p.units.push({ id: newUnitId(), defId: gift.id, star: 1, items: [], loc: { zone: 'board', r: 0, c: 3 } });
     }
     this.round = 0;
-    this.startPlanning();
+    this.startCarousel(true);
   }
 
   isPve(round: number) { return isPveRound(round); }
 
   alive() { return this.players.filter((p) => p.alive); }
+
+  // ================= carrossel =================
+
+  carousel: {
+    units: CarouselUnit[];
+    angle: number;
+    avatars: Map<string, { x: number; z: number; tx: number; tz: number; picked: number }>;
+    unlockAt: Map<string, number>;
+    end: number;
+    botPick: Map<string, number>;
+  } | null = null;
+  carouselTick: ReturnType<typeof setInterval> | null = null;
+
+  /** Próxima etapa depois do combate: carrossel (se for a hora) ou planejamento. */
+  nextRound() {
+    if (isCarouselRound(this.round + 1)) this.startCarousel(false);
+    else this.startPlanning();
+  }
+
+  startCarousel(initial: boolean) {
+    const { stage } = stageOf(this.round + 1);
+    const costs = initial ? [1] : stage <= 2 ? [1, 2, 2, 3] : stage === 3 ? [2, 3, 3, 4] : stage === 4 ? [3, 3, 4, 4, 5] : [3, 4, 4, 5, 5];
+    const units: CarouselUnit[] = [];
+    const used = new Set<string>();
+    for (let i = 0; i < CAROUSEL_N; i++) {
+      const cost = costs[i % costs.length];
+      const opts = SHOP_UNITS.filter((d) => d.cost === cost && (this.pool[d.id] ?? 0) > 0 && !used.has(d.id));
+      const def = opts.length ? pick(opts) : pick(SHOP_UNITS.filter((d) => d.cost === cost));
+      used.add(def.id);
+      this.takeFromPool(def.id);
+      const item = initial || stage <= 3 ? randomComponent() : Math.random() < 0.12 ? randomSpecial() : randomCompleted();
+      units.push({ defId: def.id, item, taken: null });
+    }
+    const now = Date.now();
+    const alive = this.alive();
+    const avatars = new Map<string, { x: number; z: number; tx: number; tz: number; picked: number }>();
+    alive.forEach((p, i) => {
+      const a = (i / Math.max(1, alive.length)) * Math.PI * 2 + Math.PI / 8;
+      const x = Math.cos(a) * AV_R * 1.12, z = Math.sin(a) * AV_R * 0.92;
+      avatars.set(p.id, { x, z, tx: x, tz: z, picked: -1 });
+    });
+    // quem está pior escolhe primeiro (de 2 em 2), igual TFT
+    const unlockAt = new Map<string, number>();
+    let end: number;
+    if (initial) {
+      for (const p of alive) unlockAt.set(p.id, now + 2500);
+      end = now + 13000;
+    } else {
+      const order = [...alive].sort((a, b) => a.hp - b.hp || Math.random() - 0.5);
+      order.forEach((p, i) => unlockAt.set(p.id, now + 3000 + Math.floor(i / 2) * 3500));
+      end = now + 3000 + Math.ceil(order.length / 2) * 3500 + 2500;
+    }
+    this.carousel = { units, angle: Math.random() * Math.PI * 2, avatars, unlockAt, end, botPick: new Map() };
+    this.phase = 'carousel';
+    this.endsAt = end;
+    this.phaseTotal = end - now;
+    if (this.timer) clearTimeout(this.timer);
+    this.broadcastState();
+    if (this.carouselTick) clearInterval(this.carouselTick);
+    this.carouselTick = setInterval(() => this.stepCarousel(), CAROUSEL_TICK);
+    this.stepCarousel();
+  }
+
+  carouselPos(i: number): [number, number] {
+    const car = this.carousel!;
+    const a = car.angle + (i / car.units.length) * Math.PI * 2;
+    return [Math.cos(a) * CAROUSEL_R, Math.sin(a) * CAROUSEL_R];
+  }
+
+  walk(p: Player, x: number, z: number) {
+    const av = this.carousel?.avatars.get(p.id);
+    if (!av || av.picked >= 0 || !Number.isFinite(x) || !Number.isFinite(z)) return;
+    av.tx = Math.max(-6.6, Math.min(6.6, x));
+    av.tz = Math.max(-5.6, Math.min(5.6, z));
+  }
+
+  botCarouselChoice(p: Player): number {
+    const car = this.carousel!;
+    const traits = computeTraits(p.boardUnits().map((u) => u.defId), traitBonus(p.augments));
+    let best = -1, bs = -Infinity;
+    car.units.forEach((cu, i) => {
+      if (cu.taken) return;
+      const def = UNITS[cu.defId];
+      const copies = p.units.filter((u) => u.defId === cu.defId).length;
+      const synergy = def.traits.filter((t) => traits.some((x) => x.id === t && x.count > 0)).length;
+      const itemV = ITEMS[cu.item]?.component ? 0.6 : ITEMS[cu.item]?.special ? 0.8 : 1.6;
+      const s = def.cost * 1.3 + synergy * 1.1 + copies * 1.8 + itemV + Math.random() * 0.8;
+      if (s > bs) { bs = s; best = i; }
+    });
+    return best;
+  }
+
+  stepCarousel() {
+    const car = this.carousel;
+    if (!car || this.phase !== 'carousel') {
+      if (this.carouselTick) clearInterval(this.carouselTick);
+      this.carouselTick = null;
+      return;
+    }
+    const now = Date.now();
+    const dt = CAROUSEL_TICK / 1000;
+    car.angle += CAROUSEL_SPIN * dt;
+    for (const p of this.alive()) {
+      const av = car.avatars.get(p.id);
+      if (!av || av.picked >= 0) continue;
+      const open = now >= (car.unlockAt.get(p.id) ?? Infinity);
+      // bots (e humanos desconectados) andam sozinhos até o robô escolhido
+      if ((p.isBot || !p.connected) && open) {
+        let target = car.botPick.get(p.id) ?? -1;
+        if (target < 0 || car.units[target].taken) { target = this.botCarouselChoice(p); car.botPick.set(p.id, target); }
+        if (target >= 0) { const [x, z] = this.carouselPos(target); av.tx = x; av.tz = z; }
+      }
+      const dx = av.tx - av.x, dz = av.tz - av.z;
+      const d = Math.hypot(dx, dz);
+      const step = AV_SPEED * dt * (p.isBot ? 0.85 : 1);
+      if (d > 0.01) { const k = Math.min(1, step / d); av.x += dx * k; av.z += dz * k; }
+      // trancado: barreira invisível em volta do carrossel
+      const r = Math.hypot(av.x, av.z);
+      if (!open && r < CAROUSEL_R + 1.2) { const k = (CAROUSEL_R + 1.2) / Math.max(0.01, r); av.x *= k; av.z *= k; }
+      if (!open) continue;
+      for (let i = 0; i < car.units.length; i++) {
+        const cu = car.units[i];
+        if (cu.taken) continue;
+        const [x, z] = this.carouselPos(i);
+        if (Math.hypot(x - av.x, z - av.z) < PICK_R) { cu.taken = p.id; av.picked = i; break; }
+      }
+    }
+    const everyone = this.alive().every((p) => (car.avatars.get(p.id)?.picked ?? 0) >= 0);
+    const msg: ServerMsg = {
+      t: 'carousel', units: car.units, angle: car.angle, spin: CAROUSEL_SPIN, radius: CAROUSEL_R,
+      avatars: [...car.avatars.entries()].map(([id, a]) => ({ id, x: Math.round(a.x * 100) / 100, z: Math.round(a.z * 100) / 100, picked: a.picked })),
+      unlocked: [...car.unlockAt.entries()].filter(([, at]) => now >= at).map(([id]) => id),
+      locked: [...car.unlockAt.entries()].filter(([, at]) => now < at).map(([id]) => id),
+      endsIn: Math.max(0, car.end - now),
+    };
+    for (const p of this.players) p.send(msg);
+    if (everyone) setTimeout(() => this.finishCarousel(), 1200);
+    if (now >= car.end || everyone) {
+      if (this.carouselTick) clearInterval(this.carouselTick);
+      this.carouselTick = null;
+      if (!everyone) this.finishCarousel();
+    }
+  }
+
+  finishCarousel() {
+    const car = this.carousel;
+    if (!car || this.phase !== 'carousel') return;
+    if (this.carouselTick) clearInterval(this.carouselTick);
+    this.carouselTick = null;
+    for (const p of this.alive()) {
+      const av = car.avatars.get(p.id);
+      let i = av?.picked ?? -1;
+      if (i < 0) {
+        const free = car.units.map((u, k) => (u.taken ? -1 : k)).filter((k) => k >= 0);
+        if (!free.length) continue;
+        i = pick(free);
+        car.units[i].taken = p.id;
+      }
+      const cu = car.units[i];
+      const slot = p.freeBenchSlot();
+      if (slot >= 0) p.units.push({ id: newUnitId(), defId: cu.defId, star: 1, items: [], loc: { zone: 'bench', i: slot } });
+      else { p.gold += UNITS[cu.defId].cost; this.returnToPool(cu.defId); }
+      p.giveItems([cu.item]);
+      this.tryMerge(p);
+      if (!p.isBot) this.toast(p, `🎠 Você pegou ${UNITS[cu.defId].name} com ${ITEMS[cu.item].icon} ${ITEMS[cu.item].name}!`, 'good');
+    }
+    for (const cu of car.units) if (!cu.taken) this.returnToPool(cu.defId);
+    this.carousel = null;
+    this.startPlanning();
+  }
 
   startPlanning() {
     this.round++;
@@ -716,11 +938,29 @@ export class Room {
       loot.push(won ? randomCompleted() : randomComponent());
       if (won && Math.random() < 0.5) loot.push(randomComponent());
     }
+    if (stage >= 3 && Math.random() < 0.2) loot.push(randomSpecial());
     p.gold += killed;
     p.giveItems(loot);
+    p.send({ t: 'loot', items: loot, gold: killed });
     if (!p.isBot) {
       this.toast(p, `🎁 Saque: ${loot.map((i) => `${ITEMS[i].icon} ${ITEMS[i].name}`).join(', ')}${killed ? ` · +${killed} 💰` : ''}`, 'good');
     }
+  }
+
+  /** Muambeiros: depois de cada combate contra jogador, chance de trazer muamba (mais se perdeu). */
+  muamba(p: Player, won: boolean) {
+    const traits = computeTraits(p.boardUnits().map((u) => u.defId), traitBonus(p.augments));
+    const tr = traits.find((x) => x.id === 'muambeiro');
+    if (!tr || tr.tier < 0) return;
+    const chance = TRAITS.muambeiro.values[tr.tier] / 100 + (won ? 0 : 0.15);
+    if (Math.random() >= chance) return;
+    const gold = tr.tier >= 1 ? 3 + Math.floor(Math.random() * 3) : 1 + Math.floor(Math.random() * 2);
+    p.gold += gold;
+    const loot: string[] = [];
+    if (tr.tier >= 1 && Math.random() < 0.5) loot.push(randomComponent());
+    if (tr.tier >= 1 && Math.random() < 0.15) loot.push(randomSpecial());
+    p.giveItems(loot);
+    if (!p.isBot) this.toast(p, `💰 Muamba: +${gold} de ouro${loot.map((i) => ` · ${ITEMS[i].icon} ${ITEMS[i].name}`).join('')}`, 'good');
   }
 
   endCombat() {
@@ -736,6 +976,8 @@ export class Room {
         continue;
       }
       const b = c.b!;
+      this.muamba(c.a, res.winner === 0);
+      if (!c.ghost) this.muamba(b, res.winner === 1);
       if (res.winner === 0) {
         this.win(c.a);
         if (!c.ghost) this.lose(b, dmgFrom(0));
@@ -772,7 +1014,7 @@ export class Room {
       for (const p of this.players) p.send({ t: 'gameover', ranking });
       return;
     }
-    this.startPlanning();
+    this.nextRound();
   }
 
   win(p: Player) {

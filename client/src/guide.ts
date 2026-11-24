@@ -83,7 +83,7 @@ function basico() {
     ${step(5, 'Monte itens', 'Rodadas contra drones (PvE) soltam <b>componentes</b>. Arraste até um robô: 2 componentes viram um item completo. Dê os itens de dano para o seu principal atirador/conjurador e os de defesa para o tanque.')}
     ${step(6, 'Cuide da economia', 'Guarde ouro: cada 10 💰 rende +1 por rodada (máx. +5). Sequências de vitórias ou derrotas dão bônus. Gaste quando a vida apertar ou quando subir de nível.')}
     ${step(7, 'Suba de nível', 'Comprar XP (<kbd>F</kbd>) aumenta o limite do tabuleiro e melhora as chances de robôs caros na loja. Robôs de 4 e 5 custo vencem jogos.')}
-    ${step(8, 'Aprimoramentos e arsenal', 'Em 2-1, 3-2 e 4-2 você escolhe um <b>aprimoramento</b> permanente. Na rodada 4 de cada estágio tem o <b>arsenal</b> 🎁 com um item de graça.')}
+    ${step(8, 'Aprimoramentos e arsenal', 'Em 2-1, 3-2 e 4-2 você escolhe um <b>aprimoramento</b> permanente. Na rodada 4 de cada estágio tem o <b>carrossel</b> 🎠 (clique no chão para andar com a sua Fumacinha e pegue um robô com item — quem tem menos vida escolhe primeiro) e na rodada 5 o <b>arsenal</b> 🎁 com um item de graça. Clique direito num robô abre o painel de detalhes.')}
   </div>
   <div class="gd-keys"><h4>Atalhos</h4>
     <span><kbd>1</kbd>–<kbd>5</kbd> comprar</span><span><kbd>D</kbd> rolar loja</span><span><kbd>F</kbd> comprar XP</span>

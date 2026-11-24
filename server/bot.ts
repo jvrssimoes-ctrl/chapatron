@@ -360,6 +360,7 @@ function itemNeedScore(p: Player, b: Brain, item: string) {
 
 /** Pode receber este item sem estragar (combinação ruim / sem espaço)? Retorna o ganho. */
 function equipGain(u: OwnedUnit, item: string): number {
+  if (ITEMS[item]?.special) return item === 'xerox' && UNITS[u.defId].cost <= 4 && u.star < 3 ? 2.5 + UNITS[u.defId].cost * 0.3 : -1;
   if (u.items.includes('maoleve')) return -1;
   if (isComponent(item)) {
     const held = u.items.find(isComponent);

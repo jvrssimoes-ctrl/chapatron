@@ -118,6 +118,10 @@ export function itemTipHtml(id: string) {
   } else if (it.recipe) {
     extra = `<div class="tt-recipe">Receita: ${itemImg(it.recipe[0])} ${esc(ITEMS[it.recipe[0]].name)} + ${itemImg(it.recipe[1])} ${esc(ITEMS[it.recipe[1]].name)}</div>`;
   }
+  if (it.special) {
+    return `<div class="tt-head tt-item" style="border-color:#3dffb0">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>item especial</small></div>
+    <div class="tt-ab">${esc(it.desc)}</div><div class="tt-hint">Some depois de usar.</div>`;
+  }
   return `<div class="tt-head tt-item" style="border-color:${it.component ? '#9aa3ad' : '#ffd23f'}">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>${it.component ? 'componente' : 'item completo'}</small></div>
     <div class="tt-istats">${statsText(it.stats)}</div>
     ${it.component ? '' : `<div class="tt-ab">${esc(it.desc)}</div>`}${extra}
@@ -396,7 +400,7 @@ export function renderHud() {
   const me = s.me;
 
   // topo
-  const phaseName = s.phase === 'planning' ? 'Planejamento' : s.phase === 'combat' ? 'Combate' : s.phase === 'gameover' ? 'Fim de jogo' : '';
+  const phaseName = s.phase === 'planning' ? 'Planejamento' : s.phase === 'combat' ? 'Combate' : s.phase === 'carousel' ? 'Carrossel' : s.phase === 'gameover' ? 'Fim de jogo' : '';
   const kind = s.pve ? '🤖 PvE' : '⚔️ PvP';
   const vs = s.phase === 'combat' && store.combat && store.combat.round === s.round
     ? ` <span class="vs">vs ${esc(store.combat.opponentName)}</span>` : '';
@@ -533,12 +537,13 @@ export function tickHud() {
   const s = store.state;
   if (!s) return;
   const left = Math.max(0, store.phaseEndsAt - performance.now());
-  const total = s.phase === 'planning' ? Math.max(1, s.phaseTotal) : Math.max(left, 1);
+  const timed = s.phase === 'planning' || s.phase === 'carousel';
+  const total = timed ? Math.max(1, s.phaseTotal) : Math.max(left, 1);
   const fill = $('timerFill');
-  fill.style.width = s.phase === 'planning' ? `${(100 * left) / total}%` : '100%';
+  fill.style.width = timed ? `${(100 * left) / total}%` : '100%';
   fill.classList.toggle('combat', s.phase === 'combat');
   fill.classList.toggle('urgent', s.phase === 'planning' && left < 5000);
-  $('timerText').textContent = s.phase === 'planning' ? `${Math.ceil(left / 1000)}s` : s.phase === 'combat' ? '⚔️' : '';
+  $('timerText').textContent = timed ? `${Math.ceil(left / 1000)}s` : s.phase === 'combat' ? '⚔️' : '';
   // contagem regressiva sonora nos últimos 5s do planejamento
   const sec = Math.ceil(left / 1000);
   if (s.phase === 'planning' && sec <= 5 && sec >= 1) {

@@ -45,3 +45,42 @@ export function localToCombat(r: number, c: number, side: 0 | 1): [number, numbe
 export function flip(r: number, c: number): [number, number] {
   return [COMBAT_ROWS - 1 - r, COLS - 1 - c];
 }
+
+/** Centro do hex no plano (odd-r), em unidades de "largura de hex". */
+export function hexCenter(r: number, c: number): [number, number] {
+  return [c + (r & 1 ? 0.5 : 0), r * 0.866];
+}
+
+/** Hex mais próximo de um ponto do plano. */
+export function nearestHex(x: number, y: number): [number, number] {
+  let best: [number, number] = [0, 0];
+  let bd = Infinity;
+  const r0 = Math.round(y / 0.866);
+  for (let r = r0 - 1; r <= r0 + 1; r++) {
+    for (let c = Math.floor(x) - 1; c <= Math.floor(x) + 1; c++) {
+      const [hx, hy] = hexCenter(r, c);
+      const d = (hx - x) ** 2 + (hy - y) ** 2;
+      if (d < bd) { bd = d; best = [r, c]; }
+    }
+  }
+  return best;
+}
+
+/** Hexes em linha reta saindo de (r0,c0) na direção de (r1,c1), até a borda da arena. */
+export function lineHexes(r0: number, c0: number, r1: number, c1: number): [number, number][] {
+  const [x0, y0] = hexCenter(r0, c0);
+  const [x1, y1] = hexCenter(r1, c1);
+  const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+  const dx = (x1 - x0) / len, dy = (y1 - y0) / len;
+  const out: [number, number][] = [];
+  const seen = new Set<number>([r0 * 100 + c0]);
+  for (let k = 0.5; k < 12; k += 0.35) {
+    const [r, c] = nearestHex(x0 + dx * k, y0 + dy * k);
+    if (!inCombatBounds(r, c)) break;
+    const key = r * 100 + c;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push([r, c]);
+  }
+  return out;
+}

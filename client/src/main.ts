@@ -10,6 +10,7 @@ import { closeGuide, isGuideOpen, openGuide, toggleGuide } from './guide';
 import { checkTips } from './tips';
 import { initEmotes, showEmote } from './emotes';
 import { closeProfile, isProfileOpen, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
+import { closeInspect, initInspect, inspect, isInspectOpen } from './inspect';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -26,8 +27,10 @@ const board = new Scene3D($('stage'), {
   hover: (info, x, y) => (info ? showTip(unitTipHtml(info), x, y) : hideTip()),
   dragging: (on, value) => setSellMode(on, value),
   overSell,
+  inspect: (key) => inspect(key),
 });
-if (import.meta.env.DEV) (window as unknown as { __board: Scene3D }).__board = board;
+initInspect((k) => board.infoOf(k));
+if (import.meta.env.DEV) Object.assign(window, { __board: board, __store: store, __net: net });
 
 // ---------------- telas ----------------
 
@@ -154,6 +157,8 @@ net.on((msg) => {
       if (msg.phase !== prevPhase) {
         if (msg.phase === 'planning' && prevPhase) sfx('phase');
         if (msg.phase === 'planning') { store.scoutId = null; setLeftTab('traits'); }
+        if (msg.phase === 'carousel') { store.scoutId = null; closeInspect(); banner('<b>🎠 CARROSSEL</b><small>clique no chão para andar e pegue um robô!</small>', 'silver'); }
+        if (msg.phase !== 'carousel') store.carousel = null;
         prevPhase = msg.phase;
       }
       setMusic(msg.phase === 'combat' ? 'combat' : msg.phase === 'gameover' ? 'menu' : 'planning');
@@ -196,6 +201,20 @@ net.on((msg) => {
       $('exitBtn').onclick = () => { location.href = location.pathname; };
       break;
     }
+    case 'carousel': {
+      const before = store.carousel;
+      const wasLocked = !before || before.locked.includes(store.youId);
+      store.carousel = msg;
+      store.carouselAt = performance.now();
+      if (wasLocked && msg.unlocked.includes(store.youId)) { sfx('phase'); toast('🎠 Liberado! Corre pegar o seu!', 'good'); }
+      const mine = msg.avatars.find((a) => a.id === store.youId);
+      const minePrev = before?.avatars.find((a) => a.id === store.youId);
+      if (mine && mine.picked >= 0 && (minePrev?.picked ?? -1) < 0) sfx('buy');
+      break;
+    }
+    case 'loot':
+      store.loot.push({ items: msg.items, gold: msg.gold, at: performance.now() });
+      break;
     case 'chat':
       chatLine(msg.from, msg.msg);
       break;
@@ -221,6 +240,7 @@ net.on((msg) => {
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && isGuideOpen()) { closeGuide(); return; }
   if (e.key === 'Escape' && isProfileOpen()) { closeProfile(); return; }
+  if (e.key === 'Escape' && isInspectOpen()) { closeInspect(); return; }
   if ((e.target as HTMLElement).tagName !== 'INPUT' && e.key.toLowerCase() === 'h') { toggleGuide(); return; }
   if (screen !== 'game' || (e.target as HTMLElement).tagName === 'INPUT') return;
   const k = e.key.toLowerCase();

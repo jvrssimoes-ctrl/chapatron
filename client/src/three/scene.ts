@@ -15,6 +15,14 @@ import { buildWorld, type World } from './world';
 import { Vfx } from './vfx';
 import { itemCanvas } from '../itemIcons';
 import { onSkin, skin } from '../skins';
+import { avatarColor, buildAvatar, type AvatarModel } from './avatar';
+
+/** canto do tabuleiro onde a Fumacinha fica parada */
+const AV_HOME = new THREE.Vector3(-6.5, 0.08, 5.5);
+
+interface Av { m: AvatarModel; pos: THREE.Vector3; target: THREE.Vector3; yaw: number; moving: boolean; pickedAt: number }
+interface Orb { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; item: string | null; gold: number; born: number; x: number; z: number }
+interface Pop { text: string; pos: THREE.Vector3; start: number; color: string }
 
 export interface HoverInfo {
   defId: string;
@@ -31,6 +39,8 @@ export interface BoardCallbacks {
   hover: (info: HoverInfo | null, x: number, y: number) => void;
   dragging: (on: boolean, value: number) => void;
   overSell: (x: number, y: number) => boolean;
+  /** clique direito num robô: abre o painel de detalhes */
+  inspect?: (key: string | null) => void;
 }
 
 /** cor "acima do branco" para estourar no bloom */
@@ -64,6 +74,7 @@ interface UV {
   starAt: number;
   lastShot: number;
   lastCast: number;
+  ghost?: boolean;
 }
 
 interface Desired {
@@ -130,6 +141,16 @@ export class Scene3D {
   private last = performance.now();
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
+  // Fumacinha (avatar), carrossel e orbes de saque
+  private avatars = new Map<string, Av>();
+  private myWalk = AV_HOME.clone();
+  private orbWalk = false;
+  private orbs: Orb[] = [];
+  private orbGeo = new THREE.IcosahedronGeometry(0.26, 2);
+  private lootSeen = 0;
+  private pops: Pop[] = [];
+  private carDeco: { ring: THREE.Mesh; barrier: THREE.Mesh; pole: THREE.Group } | null = null;
+  private lastPhase = '';
 
   constructor(container: HTMLElement, private cb: BoardCallbacks) {
     this.quality = loadQuality();
@@ -160,6 +181,11 @@ export class Scene3D {
 
     window.addEventListener('resize', () => this.layout());
     this.overlay.addEventListener('pointerdown', (e) => this.onDown(e));
+    this.overlay.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (!this.active) return;
+      this.cb.inspect?.(this.unitUnder(e.clientX, e.clientY));
+    });
     window.addEventListener('pointermove', (e) => this.onMove(e));
     window.addEventListener('pointerup', (e) => this.onUp(e));
     this.overlay.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -477,6 +503,9 @@ export class Scene3D {
     return null;
   }
 
+  /** Informações atuais de um robô na tela (para o painel de detalhes). */
+  infoOf(key: string) { return this.keyInfo.get(key) ?? null; }
+
   /** Id da unidade própria sob o cursor (para equipar itens). */
   ownedIdAt(x: number, y: number): string | null {
     const key = this.unitUnder(x, y);
@@ -512,8 +541,11 @@ export class Scene3D {
       const loc = this.pick(e.clientX, e.clientY);
       if (loc && !(loc.zone === 'board' && (this.inCombatView || this.scouting()))) u = this.ownedAt(loc);
     }
-    if (!u) return;
-    if (u.loc.zone === 'board' && (this.phase !== 'planning' || this.inCombatView)) return;
+    if (!u) { this.groundClick(e.clientX, e.clientY); return; }
+    if (u.loc.zone === 'board' && (this.phase !== 'planning' || this.inCombatView)) {
+      if (this.phase === 'carousel') this.groundClick(e.clientX, e.clientY);
+      return;
+    }
     this.drag = { unit: u, x: e.clientX, y: e.clientY };
     this.cb.dragging(true, sellValue(UNITS[u.defId].cost, u.star));
     this.cb.hover(null, 0, 0);
@@ -586,7 +618,7 @@ export class Scene3D {
     const a = hexWorld(u.fr, u.fc, new THREE.Vector3());
     const b = hexWorld(u.r, u.c, new THREE.Vector3());
     out.copy(a).lerp(b, e);
-    if (p < 1) out.y += Math.sin(p * Math.PI) * (u.jump ? 2.6 : 0.18);
+    if (p < 1) out.y += Math.sin(p * Math.PI) * u.arc;
     const lp = (now - u.lungeAt) / 260;
     if (lp >= 0 && lp < 1 && u.lungeTo && this.replay) {
       const t = this.replay.units.get(u.lungeTo);
@@ -630,6 +662,23 @@ export class Scene3D {
           info: { defId: u.init.defId, star: u.init.star, hp: u.hp, maxHp: u.maxHp, mana: u.mana, maxMana: u.maxMana, items: u.init.items },
         });
       }
+    } else if (this.phase === 'carousel' && store.carousel) {
+      // carrossel: robôs girando no centro; quem já foi pego segue o dono
+      store.carousel.units.forEach((cu, i) => {
+        const owner = cu.taken ? this.avatars.get(cu.taken) : null;
+        let target: THREE.Vector3, yaw: number;
+        if (owner) {
+          const out = owner.pos.clone().setY(0);
+          if (out.lengthSq() < 0.01) out.set(0, 0, 1);
+          out.normalize();
+          target = owner.pos.clone().addScaledVector(out, 0.8).setY(TILE_Y);
+          yaw = Math.atan2(-out.x, -out.z);
+        } else {
+          target = this.carouselSpot(i, now);
+          yaw = Math.atan2(target.x, target.z);
+        }
+        list.push({ key: `k:${i}:${cu.defId}`, defId: cu.defId, star: 1, target, yaw, instant: !owner, info: { defId: cu.defId, star: 1, items: [cu.item] } });
+      });
     } else {
       const sc = this.scouting();
       if (sc) {
@@ -853,7 +902,7 @@ export class Scene3D {
             m.head.rotation.x = -0.4 * up;
             if (Math.random() < 0.8) {
               const cpos = this.worldOf(m.castPoint, new THREE.Vector3());
-              this.emit(cpos, { vel: new THREE.Vector3(0, 0.1, 0), spread: 0.9, life: 0.35, s0: 0.15, s1: 0.6 * up + 0.2, color: AB_COLOR[kind ?? 'nuke'], alpha: 0.9, additive: true });
+              this.emit(cpos, { vel: new THREE.Vector3(0, 0.1, 0), spread: 0.9, life: 0.35, s0: 0.15, s1: 0.6 * up + 0.2, color: ru.castColor, alpha: 0.9, additive: true });
             }
           } else {
             const th = Math.min(1, (cp - 0.38) / 0.2);
@@ -873,7 +922,7 @@ export class Scene3D {
           const p0 = this.worldOf(m.rig, new THREE.Vector3()).add(new THREE.Vector3(0, 0.2, 0));
           for (let i = 0; i < 18; i++) {
             const a = (i / 18) * Math.PI * 2;
-            this.emit(p0, { vel: new THREE.Vector3(Math.cos(a) * 1.6, 0.5, Math.sin(a) * 1.6), life: 0.55, s0: 0.3, s1: 0.05, color: AB_COLOR[ru.castKind ?? 'nuke'], alpha: 0.9, additive: true });
+            this.emit(p0, { vel: new THREE.Vector3(Math.cos(a) * 1.6, 0.5, Math.sin(a) * 1.6), life: 0.55, s0: 0.3, s1: 0.05, color: ru.castColor, alpha: 0.9, additive: true });
           }
         }
       }
@@ -918,6 +967,15 @@ export class Scene3D {
         face = 'happy';
       }
 
+      // invisível (fumaça / escuridão): fica translúcido
+      const ghost = ru.alive && now < ru.stealthUntil;
+      if (ghost !== !!uv.ghost) {
+        uv.ghost = ghost;
+        m.mats.forEach((mat) => { mat.transparent = ghost; mat.opacity = ghost ? 0.3 : 1; mat.needsUpdate = true; });
+      }
+      // invocação brotando do chão
+      const sp2 = (now - ru.spawnAt) / 450;
+      if (sp2 >= 0 && sp2 < 1) { scale *= 0.2 + 0.8 * sp2 + Math.sin(sp2 * Math.PI) * 0.25; face = 'happy'; }
       m.stunRing.visible = ru.alive && now < ru.stunUntil;
       if (m.stunRing.visible) m.stunRing.rotation.y = t * 4;
       // flash de dano / buff
@@ -1127,7 +1185,9 @@ export class Scene3D {
     const combat = this.active && this.inCombatView && this.replay;
     if (combat) this.replay!.update(now);
 
+    this.syncAvatars(now, dt);
     this.syncUnits(this.desired(now), now, dt);
+    this.updateOrbs(now, dt);
     this.updateFx(now);
     this.updateParticles(dt);
     this.updateTiles(t, !!combat);
@@ -1185,6 +1245,245 @@ export class Scene3D {
     });
   }
 
+  // =================== Fumacinha / carrossel / orbes ===================
+
+  private carouselSpot(i: number, now: number, out = new THREE.Vector3()) {
+    const car = store.carousel!;
+    const a = car.angle + (car.spin * (now - store.carouselAt)) / 1000 + (i / car.units.length) * Math.PI * 2;
+    return out.set(Math.cos(a) * car.radius, TILE_Y, Math.sin(a) * car.radius);
+  }
+
+  /** clique no chão vazio: anda com a Fumacinha (no carrossel o servidor decide a posição) */
+  private groundClick(x: number, y: number) {
+    const g = this.groundPoint(x, y);
+    if (!g) return;
+    if (this.phase === 'carousel' && store.carousel) {
+      const me = store.carousel.avatars.find((a) => a.id === store.youId);
+      if (!me || me.picked >= 0) return;
+      net.send({ t: 'walk', x: g.x, z: g.z });
+    } else {
+      if (this.scouting() || this.phase === 'gameover') return;
+      this.myWalk.set(Math.max(-6.8, Math.min(6.8, g.x)), TILE_Y, Math.max(-6.0, Math.min(6.2, g.z)));
+      this.orbWalk = false;
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      this.emit(g.clone().setY(0.15), { vel: new THREE.Vector3(Math.cos(a) * 1.6, 0.3, Math.sin(a) * 1.6), life: 0.4, s0: 0.25, s1: 0.05, color: '#9bff5d', alpha: 0.8, additive: true });
+    }
+  }
+
+  private ensureCarouselDeco() {
+    if (this.carDeco) return this.carDeco;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(2.55, 3.45, 64),
+      new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.2;
+    const barrier = new THREE.Mesh(
+      new THREE.CylinderGeometry(4.2, 4.2, 1.4, 64, 1, true),
+      new THREE.MeshBasicMaterial({ color: '#ff5d9e', transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }),
+    );
+    barrier.position.y = 0.75;
+    // mastro central com chapéu girando
+    const pole = new THREE.Group();
+    const gold = new THREE.MeshStandardMaterial({ color: '#d9a94a', metalness: 0.9, roughness: 0.3, emissive: '#5a3a00' });
+    const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 1.9, 12), gold);
+    stick.position.y = 0.95;
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.75, 0.45, 12), new THREE.MeshStandardMaterial({ color: '#ff5d9e', emissive: '#ff5d9e', emissiveIntensity: 0.5, roughness: 0.5 }));
+    hat.position.y = 2.05;
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), new THREE.MeshStandardMaterial({ color: '#9bff5d', emissive: '#9bff5d', emissiveIntensity: 1.6 }));
+    ball.position.y = 2.35;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.75, 0.22, 24), gold);
+    base.position.y = 0.2;
+    pole.add(stick, hat, ball, base);
+    pole.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+    this.scene.add(ring, barrier, pole);
+    this.carDeco = { ring, barrier, pole };
+    return this.carDeco;
+  }
+
+  private syncAvatars(now: number, dt: number) {
+    const st = store.state;
+    const phase = this.phase ?? '';
+    if (phase !== this.lastPhase) {
+      if (this.lastPhase === 'carousel' || phase === 'planning') { this.myWalk.copy(AV_HOME); this.orbWalk = false; }
+      this.lastPhase = phase;
+    }
+    const car = this.active && phase === 'carousel' ? store.carousel : null;
+    // decoração do carrossel
+    if (car || this.carDeco) {
+      const deco = this.ensureCarouselDeco();
+      deco.ring.visible = deco.pole.visible = !!car;
+      deco.barrier.visible = !!car && car.locked.includes(store.youId);
+      if (car) {
+        deco.pole.rotation.y += car.spin * dt;
+        (deco.barrier.material as THREE.MeshBasicMaterial).opacity = 0.1 + Math.sin(now / 180) * 0.04;
+      }
+    }
+    const want = new Map<string, { pos: THREE.Vector3; picked: boolean }>();
+    if (this.active && st && phase !== 'gameover') {
+      if (car) for (const a of car.avatars) want.set(a.id, { pos: new THREE.Vector3(a.x, TILE_Y, a.z), picked: a.picked >= 0 });
+      else if (!this.scouting() && st.me.alive) want.set(store.youId, { pos: this.myWalk, picked: false });
+    }
+    for (const [id, av] of this.avatars) {
+      if (want.has(id)) continue;
+      this.scene.remove(av.m.root);
+      av.m.dispose();
+      this.avatars.delete(id);
+    }
+    const t = now / 1000;
+    for (const [id, w] of want) {
+      let av = this.avatars.get(id);
+      if (!av) {
+        const m = buildAvatar(avatarColor(id));
+        m.root.scale.setScalar(id === store.youId ? 1.55 : 1.3);
+        this.scene.add(m.root);
+        const start = id === store.youId && this.lastPhase !== 'carousel' ? AV_HOME : w.pos;
+        av = { m, pos: start.clone(), target: w.pos.clone(), yaw: 0, moving: false, pickedAt: -1e9 };
+        this.avatars.set(id, av);
+      }
+      if (w.picked && av.pickedAt < 0) av.pickedAt = now;
+      if (!w.picked) av.pickedAt = -1e9;
+      av.target.copy(w.pos);
+      const dx = av.target.x - av.pos.x, dz = av.target.z - av.pos.z;
+      const d = Math.hypot(dx, dz);
+      const speed = car ? Math.max(5.2, d * 4) : 4.6;
+      av.moving = d > 0.04;
+      if (av.moving) {
+        const k = Math.min(1, (speed * dt) / d);
+        av.pos.x += dx * k;
+        av.pos.z += dz * k;
+        const want = Math.atan2(dx, dz);
+        let diff = want - av.yaw;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        av.yaw += diff * Math.min(1, dt * 12);
+        if (Math.random() < dt * 14) this.emit(av.pos.clone().setY(0.25), { vel: new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.5, (Math.random() - 0.5) * 0.4), life: 0.8, s0: 0.25, s1: 0.6, color: '#d8ccff', alpha: 0.35 });
+      } else av.yaw *= 1 - Math.min(1, dt * 4);
+      av.m.root.position.copy(av.pos);
+      av.m.root.rotation.y = av.yaw;
+      av.m.tick(t, av.moving, now - av.pickedAt < 1400);
+    }
+  }
+
+  private updateOrbs(now: number, dt: number) {
+    // novos saques viram orbes caindo no seu lado do tabuleiro
+    while (this.lootSeen < store.loot.length) {
+      const l = store.loot[this.lootSeen++];
+      const drops: { item: string | null; gold: number }[] = l.items.map((item) => ({ item, gold: 0 }));
+      if (l.gold > 0) drops.push({ item: null, gold: l.gold });
+      for (const dr of drops) {
+        const it = dr.item ? ITEMS[dr.item] : null;
+        const color = !it ? '#ffd23f' : it.special ? '#3dffb0' : it.component ? '#7ad7ff' : '#c58bff';
+        const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.1, roughness: 0.25, metalness: 0.2, transparent: true, opacity: 0.92 });
+        const mesh = new THREE.Mesh(this.orbGeo, mat);
+        const x = (Math.random() - 0.5) * 9.5, z = 1.3 + Math.random() * 3.6;
+        mesh.position.set(x, 5, z);
+        mesh.castShadow = true;
+        this.scene.add(mesh);
+        this.orbs.push({ mesh, mat, item: dr.item, gold: dr.gold, born: now + this.orbs.length * 180, x, z });
+      }
+    }
+    if (!this.orbs.length) {
+      if (this.orbWalk) { this.orbWalk = false; this.myWalk.copy(AV_HOME); }
+      return;
+    }
+    const me = this.avatars.get(store.youId);
+    const t = now / 1000;
+    let nearest: Orb | null = null, nd = Infinity;
+    for (const o of [...this.orbs]) {
+      const age = (now - o.born) / 1000;
+      // queda com quique
+      const fall = Math.max(0, age);
+      const h = fall < 0.6 ? 5 * (1 - (fall / 0.6) ** 2) : Math.abs(Math.sin((fall - 0.6) * 7)) * 0.5 * Math.exp(-(fall - 0.6) * 3);
+      o.mesh.position.set(o.x, 0.45 + h + (fall > 1.4 ? Math.sin(t * 3 + o.x) * 0.08 : 0), o.z);
+      o.mesh.rotation.y += dt * 1.5;
+      o.mat.emissiveIntensity = 0.9 + Math.sin(t * 5 + o.z) * 0.35;
+      if (age > 0.8 && Math.random() < dt * 4) this.emit(o.mesh.position.clone(), { vel: new THREE.Vector3(0, 0.8, 0), spread: 0.25, life: 0.6, s0: 0.2, s1: 0.02, color: '#' + o.mat.color.getHexString(), alpha: 0.8, additive: true });
+      const close = me && Math.hypot(me.pos.x - o.x, me.pos.z - o.z) < 0.7;
+      if ((close && age > 0.6) || age > 14) { this.collectOrb(o, now); continue; }
+      if (me && age > 0.6) {
+        const d = Math.hypot(me.pos.x - o.x, me.pos.z - o.z);
+        if (d < nd) { nd = d; nearest = o; }
+      }
+    }
+    // a Fumacinha vai sozinha buscar os orbes (fora do carrossel)
+    if (nearest && this.phase !== 'carousel' && (this.orbWalk || this.myWalk.distanceTo(AV_HOME) < 0.1)) {
+      this.orbWalk = true;
+      this.myWalk.set(nearest.x, TILE_Y, nearest.z);
+    }
+  }
+
+  private collectOrb(o: Orb, now: number) {
+    this.orbs.splice(this.orbs.indexOf(o), 1);
+    this.scene.remove(o.mesh);
+    o.mat.dispose();
+    const p = o.mesh.position.clone();
+    const color = '#' + o.mat.color.getHexString();
+    for (let i = 0; i < 18; i++) {
+      this.emit(p, { vel: new THREE.Vector3((Math.random() - 0.5) * 3, 1 + Math.random() * 2.5, (Math.random() - 0.5) * 3), life: 0.7, s0: 0.3, s1: 0.04, color, alpha: 0.9, additive: true });
+    }
+    const it = o.item ? ITEMS[o.item] : null;
+    this.pops.push({ text: it ? `${it.icon} ${it.name}` : `+${o.gold} 💰`, pos: p, start: now, color: it ? color : '#ffd23f' });
+    sfx(it ? 'equip' : 'buy');
+  }
+
+  private drawAvatarOverlay(now: number, unit: number) {
+    const ctx = this.octx;
+    const st = store.state!;
+    ctx.save();
+    ctx.textAlign = 'center';
+    // nomes no carrossel
+    const car = this.phase === 'carousel' ? store.carousel : null;
+    if (car) {
+      for (const [id, av] of this.avatars) {
+        const p = this.project(this.tmp.copy(av.pos).setY(1.35 * av.m.root.scale.x));
+        const pl = st.players.find((x) => x.id === id);
+        const locked = car.locked.includes(id);
+        const label = `${locked ? '🔒 ' : ''}${pl?.name ?? '?'}`;
+        ctx.font = `800 ${unit * (id === store.youId ? 1.1 : 0.95)}px Nunito, sans-serif`;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(10,5,20,0.85)';
+        ctx.fillStyle = id === store.youId ? '#9bff5d' : locked ? '#b8a8d8' : '#ffffff';
+        ctx.strokeText(label, p.x, p.y);
+        ctx.fillText(label, p.x, p.y);
+      }
+      // aviso central
+      const mine = car.avatars.find((a) => a.id === store.youId);
+      let msg = '', color = '#ffffff';
+      if (!mine) msg = '';
+      else if (mine.picked >= 0) { const cu = car.units[mine.picked]; msg = `✅ Você pegou ${UNITS[cu.defId]?.name ?? ''}!`; color = '#9bff5d'; }
+      else if (car.locked.includes(store.youId)) { msg = '🔒 Aguarde sua vez — quem tem menos vida escolhe primeiro'; color = '#ffb3d6'; }
+      else { msg = '🏃 LIBERADO! Clique no chão para andar até um robô'; color = '#ffe066'; }
+      if (msg) {
+        const p = this.project(new THREE.Vector3(0, 0, -6.4));
+        ctx.font = `${unit * 1.25}px Bungee, sans-serif`;
+        const tw = ctx.measureText(msg).width + 30;
+        ctx.fillStyle = 'rgba(15,8,30,0.78)';
+        ctx.beginPath();
+        ctx.roundRect(p.x - tw / 2, p.y - unit * 1.5, tw, unit * 2.3, 12);
+        ctx.fill();
+        ctx.fillStyle = color;
+        ctx.fillText(msg, p.x, p.y + unit * 0.15);
+      }
+    }
+    // textos dos orbes coletados
+    this.pops = this.pops.filter((pp) => now - pp.start < 1700);
+    for (const pp of this.pops) {
+      const k = (now - pp.start) / 1700;
+      const p = this.project(this.tmp.copy(pp.pos).setY(pp.pos.y + 0.6 + k * 1.4));
+      ctx.globalAlpha = Math.min(1, (1 - k) * 2.5);
+      ctx.font = `900 ${unit * 1.25 * (1 + Math.max(0, 0.3 - k) * 1.5)}px Nunito, sans-serif`;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(10,5,20,0.85)';
+      ctx.fillStyle = pp.color;
+      ctx.strokeText(pp.text, p.x, p.y);
+      ctx.fillText(pp.text, p.x, p.y);
+    }
+    ctx.restore();
+  }
+
   // =================== overlay 2D ===================
 
   private drawOverlay(now: number, combat: boolean) {
@@ -1205,7 +1504,7 @@ export class Scene3D {
       if (uv.key.startsWith('c:')) {
         const ru = this.replay?.units.get(Number(uv.key.slice(2)));
         if (ru && ru.alive) {
-          this.bars(p.x, p.y, ru.init.star, ru.mine, ru.hp, ru.maxHp, ru.shield, ru.mana, ru.maxMana, unit);
+          this.bars(p.x, p.y, ru.init.star, ru.mine, ru.hp, ru.maxHp, ru.shield, ru.mana, ru.maxMana, unit, ru.init.uid);
           if (info.items?.length) this.itemRow(p.x, p.y + unit * 1.55, info.items, unit);
         }
       } else {
@@ -1252,6 +1551,8 @@ export class Scene3D {
         ctx.restore();
       }
     }
+
+    this.drawAvatarOverlay(now, unit);
 
     // rótulos
     ctx.textAlign = 'center';
@@ -1364,24 +1665,43 @@ export class Scene3D {
     ctx.restore();
   }
 
-  private bars(x: number, y: number, star: number, mine: boolean, hp: number, maxHp: number, shield: number, mana: number, maxMana: number, unit: number) {
+  /** vida "fantasma" que desce devagar depois do dano (rastro amarelo, igual TFT) */
+  private hpLag = new Map<number, number>();
+
+  private bars(x: number, y: number, star: number, mine: boolean, hp: number, maxHp: number, shield: number, mana: number, maxMana: number, unit: number, uid: number) {
     const ctx = this.octx;
-    const w = unit * 4.2, h = Math.max(5, unit * 0.5);
+    const w = unit * 4.4, h = Math.max(6, unit * 0.55);
     const bx = x - w / 2;
-    ctx.fillStyle = 'rgba(10,8,20,0.88)';
-    ctx.fillRect(bx - 2, y - 2, w + 4, h * 1.75 + 5);
     const total = Math.max(maxHp, hp + shield);
-    ctx.fillStyle = mine ? '#4fe06a' : '#ff4d6a';
+    let lag = this.hpLag.get(uid) ?? hp;
+    lag = hp >= lag ? hp : lag - Math.max(total * 0.004, (lag - hp) * 0.07);
+    this.hpLag.set(uid, lag);
+    // moldura
+    ctx.fillStyle = 'rgba(8,6,16,0.92)';
+    ctx.beginPath(); ctx.roundRect(bx - 2.5, y - 2.5, w + 5, h * 1.8 + 6, 3); ctx.fill();
+    ctx.strokeStyle = mine ? 'rgba(120,255,150,0.55)' : 'rgba(255,110,140,0.55)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // vida, rastro e escudo
+    if (lag > hp) { ctx.fillStyle = '#ffe9a8'; ctx.fillRect(bx + (w * hp) / total, y, (w * (lag - hp)) / total, h); }
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, mine ? '#8dff9e' : '#ff8aa0');
+    g.addColorStop(1, mine ? '#2fb44a' : '#d6304e');
+    ctx.fillStyle = g;
     ctx.fillRect(bx, y, (w * hp) / total, h);
     if (shield > 0) {
       ctx.fillStyle = '#e8f6ff';
       ctx.fillRect(bx + (w * hp) / total, y, (w * shield) / total, h);
     }
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    for (let v = 300; v < total; v += 300) ctx.fillRect(bx + (w * v) / total, y, 1, h);
+    // divisões: finas a cada 100, grossas a cada 1000
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    if (total < 6000) for (let v = 100; v < total; v += 100) ctx.fillRect(bx + (w * v) / total, y, 1, v % 1000 === 0 ? h : h * 0.45);
+    else for (let v = 1000; v < total; v += 1000) ctx.fillRect(bx + (w * v) / total, y, 1.5, h);
+    // mana (brilha quando está cheia)
     if (maxMana < 900) {
-      ctx.fillStyle = '#3d8bff';
-      ctx.fillRect(bx, y + h + 1.5, (w * Math.min(mana, maxMana)) / maxMana, h * 0.65);
+      const full = mana >= maxMana;
+      ctx.fillStyle = full ? `rgba(130,200,255,${0.75 + Math.sin(performance.now() / 90) * 0.25})` : '#3d8bff';
+      ctx.fillRect(bx, y + h + 1.5, (w * Math.min(mana, maxMana)) / maxMana, h * 0.7);
     }
     this.stars(x, y - unit * 0.75, star, unit);
   }

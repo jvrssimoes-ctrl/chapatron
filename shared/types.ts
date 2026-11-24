@@ -4,20 +4,38 @@ export type TraitId =
   // classes (verticais e horizontais)
   | 'tanque' | 'atirador' | 'brisa' | 'sorrateiro' | 'guru' | 'dj' | 'hacker' | 'reciclado'
   // expansão "Noite de Neon"
-  | 'neon' | 'paranoico';
+  | 'neon' | 'paranoico'
+  // expansão "Horta Proibida"
+  | 'jardineiro' | 'muambeiro' | 'pirado';
 
 /** Papel do robô no combate (igual aos "arquétipos" de auto battler). */
 export type Role = 'tank' | 'fighter' | 'adcarry' | 'apcaster' | 'assassin' | 'support';
 
-export type AbilityKind =
+/** Família visual da habilidade (pose de quem conjura + cor). */
+export type FxKind =
   | 'shield' | 'multishot' | 'drain' | 'heal' | 'buffAS' | 'nuke' | 'stun'
   | 'aoe' | 'teamHeal' | 'aoeStun' | 'teamShield' | 'meteor' | 'teamAS';
 
+/** Mecânica única de cada robô (implementada em server/combat.ts). */
+export type AbilityKind =
+  | 'none'
+  | 'cascagrossa' | 'baforada' | 'mordida' | 'bolinhapaz' | 'estouro' | 'brasa' | 'sinaltravado' | 'olhogordo'
+  | 'moedor' | 'nuvemdensa' | 'esporos' | 'fornada' | 'golpenebuloso' | 'grave' | 'parafuso' | 'pulsoneon'
+  | 'salgadinho' | 'fotossintese' | 'neblinapesada' | 'eclipse' | 'rima' | 'virus' | 'escapamento' | 'surto' | 'ricochete'
+  | 'groove' | 'pizza' | 'hiperespaco' | 'latariareal' | 'pane' | 'badtrip'
+  | 'vibracao' | 'bigbang' | 'seiva' | 'festa' | 'apagao'
+  // novos robôs
+  | 'cupinzeiro' | 'chiclete' | 'fogueira' | 'radinho' | 'raiz' | 'tornado' | 'curto' | 'imantar'
+  | 'espelho' | 'colheita' | 'sirene' | 'buraconegro' | 'marreta' | 'mudinha';
+
 export interface AbilityDef {
   kind: AbilityKind;
+  fx: FxKind;
   name: string;
-  desc: string; // {v} = valor por estrela
+  desc: string; // {v} = valor por estrela, {x} = segundo valor por estrela
   values: [number, number, number];
+  values2?: [number, number, number];
+  color?: string;
   /** 'ap' = valor × poder de habilidade; 'ad' = valor é % do dano de ataque */
   scale: 'ap' | 'ad';
   count?: number;
@@ -56,6 +74,8 @@ export interface UnitDef {
   ability: AbilityDef;
   look: RobotLook;
   pve?: boolean;
+  /** invocado durante o combate (não aparece na loja) */
+  summon?: boolean;
 }
 
 export interface TraitDef {
@@ -90,6 +110,8 @@ export interface ItemDef {
   name: string;
   icon: string;
   component: boolean;
+  /** consumível (Pé de Cabra, Reforjador, Xerox) */
+  special?: boolean;
   recipe?: [string, string];
   stats: ItemStats;
   desc: string;
@@ -123,7 +145,11 @@ export type Loc = { zone: 'board'; r: number; c: number } | { zone: 'bench'; i: 
 
 export interface OwnedUnit extends UnitInst { loc: Loc }
 
-export type Phase = 'lobby' | 'planning' | 'combat' | 'gameover';
+export type Phase = 'lobby' | 'carousel' | 'planning' | 'combat' | 'gameover';
+
+/** Carrossel compartilhado: robôs girando no meio, cada um com um item. */
+export interface CarouselUnit { defId: string; item: string; taken: string | null }
+export interface CarouselAvatar { id: string; x: number; z: number; picked: number }
 
 export interface BoardPreviewUnit { defId: string; star: number; r: number; c: number; items: string[] }
 
@@ -178,10 +204,14 @@ export interface CombatUnitInit {
 }
 
 export type CombatEvent =
-  | { t: number; k: 'move'; u: number; r: number; c: number; jump?: boolean }
+  | { t: number; k: 'move'; u: number; r: number; c: number; jump?: boolean; dash?: boolean; push?: boolean }
   | { t: number; k: 'atk'; u: number; tg: number; mana: number }
-  | { t: number; k: 'dmg'; u: number; amt: number; hp: number; sh: number; mana: number; crit?: boolean; dodge?: boolean; magic?: boolean; s?: number }
-  | { t: number; k: 'cast'; u: number; ab: AbilityKind; tg?: number; tgs?: number[] }
+  | { t: number; k: 'dmg'; u: number; amt: number; hp: number; sh: number; mana: number; crit?: boolean; dodge?: boolean; miss?: boolean; magic?: boolean; tru?: boolean; s?: number }
+  | { t: number; k: 'cast'; u: number; ab: AbilityKind; tg?: number; tgs?: number[]; r?: number; c?: number; n?: number }
+  /** efeito visual tardio de uma habilidade (impacto, tick de zona, ricochete...) */
+  | { t: number; k: 'fx'; u: number; ab: AbilityKind; tg?: number; tgs?: number[]; r?: number; c?: number; n?: number }
+  | { t: number; k: 'spawn'; unit: CombatUnitInit; u: number; src: number }
+  | { t: number; k: 'status'; u: number; s: StatusKind; dur: number }
   | { t: number; k: 'heal'; u: number; amt: number; hp: number }
   | { t: number; k: 'shield'; u: number; sh: number }
   | { t: number; k: 'death'; u: number }
@@ -189,6 +219,8 @@ export type CombatEvent =
   | { t: number; k: 'mana'; u: number; mana: number }
   | { t: number; k: 'buff'; u: number; dur: number }
   | { t: number; k: 'proc'; u: number; item: string; tgs?: number[] };
+
+export type StatusKind = 'blind' | 'slow' | 'mark' | 'taunt' | 'stealth' | 'reflect' | 'dodge' | 'silence' | 'burn' | 'virus' | 'cleanse' | 'rage';
 
 export interface CombatResult {
   units: CombatUnitInit[];
@@ -217,7 +249,8 @@ export type ClientMsg =
   | { t: 'lock' }
   | { t: 'ready' }
   | { t: 'chat'; msg: string }
-  | { t: 'emote'; e: number };
+  | { t: 'emote'; e: number }
+  | { t: 'walk'; x: number; z: number };
 
 export type ServerMsg =
   | { t: 'joined'; room: string; youId: string }
@@ -238,5 +271,7 @@ export type ServerMsg =
   | { t: 'gameover'; ranking: { id: string; name: string; place: number; isBot: boolean }[] }
   | { t: 'chat'; from: string; msg: string }
   | { t: 'emote'; from: string; e: number }
+  | { t: 'carousel'; units: CarouselUnit[]; angle: number; spin: number; radius: number; avatars: CarouselAvatar[]; unlocked: string[]; locked: string[]; endsIn: number }
+  | { t: 'loot'; items: string[]; gold: number }
   | { t: 'toast'; msg: string; kind?: 'info' | 'good' | 'bad' }
   | { t: 'error'; msg: string };

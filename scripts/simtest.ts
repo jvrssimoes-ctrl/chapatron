@@ -31,6 +31,17 @@ for (let g = 0; g < games; g++) {
   room.setTimer = () => {};
   for (let i = 0; i < 8; i++) room.players.push(new Player(`p${i}`, '', `Bot${i}`, true));
   room.startGame();
+  // carrossel: no simulador cada bot pega o robô que escolheria
+  const skipCarousel = () => {
+    if ((room.phase as string) !== 'carousel' || !room.carousel) return;
+    for (const p of room.alive()) {
+      const i = room.botCarouselChoice(p);
+      const av = room.carousel.avatars.get(p.id);
+      if (i >= 0 && av) { room.carousel.units[i].taken = p.id; av.picked = i; }
+    }
+    room.finishCarousel();
+  };
+  skipCarousel();
   const snap = new Set<Player>();
   const boards = new Map<Player, { defId: string; star: number }[]>();
   const record = (p: Player) => {
@@ -68,6 +79,7 @@ for (let g = 0; g < games; g++) {
     }
     for (const p of room.alive()) boards.set(p, p.boardUnits().map((u) => ({ defId: u.defId, star: u.star })));
     room.endCombat();
+    skipCarousel();
     for (const p of room.players) record(p);
   }
   const winner = room.players.find((p) => p.place === 1)!;

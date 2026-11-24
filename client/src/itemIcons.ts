@@ -531,12 +531,14 @@ function mix(hex: string, k: number) {
 
 function frame(c: C, id: string) {
   const it = ITEMS[id];
-  const comp = !it || it.component;
-  const [a, b] = comp ? [THEME[id] ?? '#b07aff', THEME[id] ?? '#b07aff'] : [THEME[it.recipe![0]], THEME[it.recipe![1]]];
+  const sp = !!it?.special;
+  const comp = !it || it.component || sp;
+  const [a, b] = sp ? ['#3dffb0', '#7ad7ff'] : comp ? [THEME[id] ?? '#b07aff', THEME[id] ?? '#b07aff'] : [THEME[it.recipe![0]], THEME[it.recipe![1]]];
   // borda
   c.beginPath(); rr(c, 3, 3, 122, 122, 24);
   c.fillStyle = id === 'maoleve'
     ? lg(c, 0, 0, 128, 128, '#ff7ad9', '#7ad7ff', '#5dff7a', '#ffd23f', '#ff7ad9')
+    : sp ? lg(c, 0, 0, 128, 128, '#d6fff0', '#3dffb0', '#0a5a4a', '#9fffe0', '#1a7a6a')
     : comp ? lg(c, 0, 0, 128, 128, '#f4f6fb', '#8a92a6', '#4a5064', '#c8cede', '#6a7286')
       : lg(c, 0, 0, 128, 128, '#fff6c8', '#ffcf4a', '#8a5a00', '#ffe680', '#a06a00');
   c.fill();
