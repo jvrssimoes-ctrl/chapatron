@@ -1,4 +1,4 @@
-import type { ServerMsg } from '../../shared/types';
+import type { OrbContent, OrbKind, ServerMsg } from '../../shared/types';
 
 type StateMsg = Extract<ServerMsg, { t: 'state' }>;
 type LobbyMsg = Extract<ServerMsg, { t: 'lobby' }>;
@@ -17,7 +17,8 @@ export const store = {
   carousel: null as CarouselMsg | null,
   carouselAt: 0,
   /** itens/ouro do último saque, para a Fumacinha coletar os orbes */
-  loot: [] as { items: string[]; gold: number; at: number }[],
+  /** orbes de saque abertos (para o estouro na tela) */
+  orbOpens: [] as { id: string; x: number; z: number; kind: OrbKind; content: OrbContent }[],
 };
 
 export type { StateMsg, LobbyMsg, CombatMsg, CarouselMsg };

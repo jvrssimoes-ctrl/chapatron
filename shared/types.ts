@@ -181,7 +181,14 @@ export interface PublicPlayer {
   team: number;
 }
 
+/** Orbe de saque no chão (o conteúdo só aparece ao pegar). */
+export type OrbKind = 'cinza' | 'azul' | 'ouro';
+export interface LootOrb { id: string; kind: OrbKind; x: number; z: number }
+/** O que sai de um orbe. */
+export interface OrbContent { item?: string; gold?: number; unit?: string }
+
 export interface PrivateState {
+  orbs: LootOrb[];
   gold: number;
   level: number;
   xp: number;
@@ -274,7 +281,11 @@ export type ClientMsg =
   | { t: 'mode'; mode: GameMode }
   | { t: 'team'; team: number }
   /** modo Dupla: manda um item do banco ou um robô do banco para a dupla */
-  | { t: 'gift'; item?: number; unitId?: string };
+  | { t: 'gift'; item?: number; unitId?: string }
+  /** pegar um orbe de saque (a Pequena Lenda passou em cima) */
+  | { t: 'pickOrb'; id: string }
+  /** abrir uma bigorna do banco de itens */
+  | { t: 'useItem'; item: number };
 
 export type ServerMsg =
   | { t: 'joined'; room: string; youId: string }
@@ -300,7 +311,7 @@ export type ServerMsg =
   | { t: 'chat'; from: string; msg: string }
   | { t: 'emote'; from: string; e: number }
   | { t: 'carousel'; units: CarouselUnit[]; angle: number; spin: number; radius: number; avatars: CarouselAvatar[]; unlocked: string[]; locked: string[]; endsIn: number }
-  | { t: 'loot'; items: string[]; gold: number }
+  | { t: 'orbOpen'; id: string; x: number; z: number; kind: OrbKind; content: OrbContent }
   /** votação do portal: votes = id do jogador → opção */
   | { t: 'portal'; options: string[]; votes: Record<string, number>; endsIn: number; chosen: string | null }
   | { t: 'toast'; msg: string; kind?: 'info' | 'good' | 'bad' }

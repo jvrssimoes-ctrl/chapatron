@@ -280,8 +280,8 @@ net.on((msg) => {
       if (screen !== 'game' && store.state) show('game');
       onPortalMsg(msg);
       break;
-    case 'loot':
-      store.loot.push({ items: msg.items, gold: msg.gold, at: performance.now() });
+    case 'orbOpen':
+      store.orbOpens.push({ id: msg.id, x: msg.x, z: msg.z, kind: msg.kind, content: msg.content });
       break;
     case 'chat':
       chatLine(msg.from, msg.msg);

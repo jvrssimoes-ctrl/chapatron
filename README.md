@@ -80,6 +80,9 @@ O container tem verificação de saúde em `/health`. Se a conexão cair, o jogo
 - **Ranque**: cada partida dá ou tira pontos pela colocação (do 🔩 Ferro-Velho ao 👑 Chapado Supremo, divisões IV–I). Fica salvo no navegador e aparece no menu e no perfil, com o histórico mostrando modo e pontos.
 - **Tela final**: mostra o ranque ganho/perdido, o seu time final e o time campeão (no modo Dupla, a classificação por dupla).
 - **Times recomendados**: aba **Times** no Guia com composições montadas a partir das sinergias, com carregador, tanque e itens sugeridos.
+- **Saque em orbes**: nas rodadas contra drones o saque cai como orbes (⚪ comum, 🔵 raro, 🟡 lendário). Clique no tabuleiro para a sua Pequena Lenda ir pegar. Dentro pode vir componente, ⚒️ Bigorna de Componente (escolha 1 de 4), 🛠️ Bigorna Dourada (escolha 1 de 4 itens completos), um robô do custo do estágio ou moedas. O que ficar no chão é recolhido sozinho quando o combate começa.
+- **Painel de combate**: a aba Dano abre sozinha na luta e mostra dano causado, recebido e cura/escudo de cada robô. Ícones em cima da vida mostram status (💫 atordoado, 🔥 queimando, 🙈 cego, 🔇 calado...).
+- **Celular**: dá pra jogar deitado no celular. Arraste com o dedo, toque num item para ver a dica, segure num robô para abrir o painel e segure na loja para ler sem comprar.
 - **Ajudas**: ao arrastar um robô o alcance dele aparece no tabuleiro, e as chances de cada custo na loja ficam embaixo do nível.
 ## Sinergias
 

@@ -6,9 +6,9 @@ import {
 } from '../shared/data';
 import { AUGMENTS, augmentPool, traitBonus } from '../shared/augments';
 import { computeTraits, emblemBonus, mergeBonus } from '../shared/traits';
-import { ARTIFACTS, COMPLETED, COMPONENTS, EMBLEMS, ITEMS, RADIANTS, SPECIALS, boardCap, combine, emblemAllowed, isArtifact, isComponent, isEmblem, isRadiant, isSpecial, itemSlots } from '../shared/items';
+import { ARTIFACTS, COMPLETED, COMPONENTS, EMBLEMS, ITEMS, RADIANTS, SPECIALS, boardCap, combine, emblemAllowed, isAnvil, isArtifact, isComponent, isEmblem, isRadiant, isSpecial, itemSlots } from '../shared/items';
 import { BENCH_SIZE, BOARD_ROWS, COLS } from '../shared/hex';
-import type { AugTier, BoardPreviewUnit, CarouselUnit, Choice, ClientMsg, CombatResult, GameMode, Loc, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
+import type { AugTier, BoardPreviewUnit, CarouselUnit, Choice, ClientMsg, CombatResult, GameMode, Loc, LootOrb, OrbContent, OrbKind, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
 import { MODES, modeDamageMult, modePlanningMult, turboIncome, turboLevel } from '../shared/modes';
 import { simulate, type SideInput } from './combat';
 import { PORTALS, PORTAL_IDS, TURBO_SKIP_PORTALS, interestCap, rerollCost } from '../shared/portals';
@@ -69,6 +69,8 @@ export class Player {
   team = -1;
   /** tabuleiro no momento em que saiu (para a tela final) */
   finalBoard: BoardPreviewUnit[] = [];
+  /** orbes de saque no chão esperando a Pequena Lenda */
+  orbs: (LootOrb & { content: OrbContent })[] = [];
 
   constructor(public id: string, public token: string, public name: string, public isBot: boolean) {}
 
@@ -298,6 +300,7 @@ export class Room {
       if (this.phase === 'lobby') this.broadcastLobby(); else this.broadcastState();
       return;
     }
+    if (msg.t === 'pickOrb') { if (this.phase !== 'lobby' && this.phase !== 'gameover' && this.pickOrb(p, String(msg.id))) this.sendState(p); return; }
     if (msg.t === 'walk') { if (this.phase === 'carousel' && p.alive) this.walk(p, Number(msg.x), Number(msg.z)); return; }
     if (this.phase !== 'planning' && this.phase !== 'combat') return;
     if (!p.alive) return;
@@ -309,6 +312,7 @@ export class Room {
       case 'equip': ok = this.equip(p, msg.item, msg.unitId); break;
       case 'choose': ok = this.choose(p, msg.i); break;
       case 'rerollChoice': ok = this.rerollChoice(p, msg.i); break;
+      case 'useItem': ok = this.openAnvil(p, Number(msg.item)); break;
       case 'gift': ok = this.gift(p, msg.item, msg.unitId); if (ok) { const m = this.mateOf(p); if (m) this.sendState(m); } break;
       case 'reroll': ok = this.reroll(p); break;
       case 'xp': ok = this.buyXp(p); break;
@@ -474,6 +478,7 @@ export class Room {
     const u = p.units.find((x) => x.id === unitId);
     if (!item || !u) return false;
     if (this.phase === 'combat' && u.loc.zone === 'board') { this.toast(p, 'Espera o combate acabar pra equipar quem está lutando.'); return false; }
+    if (isAnvil(item)) return this.openAnvil(p, index);
     if (isSpecial(item)) return this.useSpecial(p, index, u);
     if (u.items.includes('maoleve')) { this.toast(p, 'A Mão Leve já ocupa todos os espaços.'); return false; }
     const traitsOf = UNITS[u.defId].traits;
@@ -1168,7 +1173,8 @@ export class Room {
     const pve = this.isPve(this.round);
     this.pendingCombats = [];
     for (const p of this.alive()) {
-      // escolha não feita: escolhe sozinho
+      // orbes esquecidos no chão são recolhidos e escolha não feita é feita sozinha
+      this.collectOrbs(p);
       if (p.choice) this.choose(p, Math.floor(Math.random() * p.choice.options.length));
       this.autoFill(p);
     }
@@ -1208,31 +1214,127 @@ export class Room {
     this.broadcastState();
   }
 
-  /** Recompensas das rodadas PvE (componentes, itens e ouro). */
+  /** Robô aleatório de custo condizente com o estágio (para os orbes). */
+  randomUnitFor(stage: number): string | null {
+    const costs = stage <= 1 ? [1, 1, 2] : stage === 2 ? [1, 2, 2, 3] : stage === 3 ? [2, 3, 3, 4] : stage === 4 ? [3, 4, 4, 5] : [4, 4, 5];
+    for (let k = 0; k < 6; k++) {
+      const cost = pick(costs);
+      const opts = SHOP_UNITS.filter((d) => d.cost === cost && (this.pool[d.id] ?? 0) > 0);
+      if (opts.length) return pick(opts).id;
+    }
+    return null;
+  }
+
+  /** Recompensas das rodadas PvE: viram orbes no chão que a Pequena Lenda precisa pegar. */
   pveLoot(p: Player, won: boolean, killed: number) {
     const { stage } = stageOf(this.round);
-    const loot: string[] = [];
+    const out: OrbContent[] = [];
+    const comp = () => out.push({ item: stage >= 2 && Math.random() < 0.15 ? 'bigorna' : randomComponent() });
+    const unit = (chance: number) => {
+      if (Math.random() >= chance) return;
+      const u = this.randomUnitFor(stage);
+      if (u) out.push({ unit: u });
+    };
     if (stage === 1) {
-      loot.push(randomComponent());
-      if (this.round === 3) { p.gold += 2; if (Math.random() < 0.5) loot.push(randomComponent()); }
+      comp();
+      if (this.round === 3) { out.push({ gold: 2 }); if (Math.random() < 0.5) comp(); }
+      unit(0.4);
     } else if (stage <= 3) {
-      loot.push(randomComponent());
-      if (won) loot.push(randomComponent());
+      comp();
+      if (won) comp();
+      unit(0.3);
     } else {
-      loot.push(won ? randomCompleted() : randomComponent());
-      if (won && Math.random() < 0.5) loot.push(randomComponent());
+      if (won) out.push({ item: Math.random() < 0.18 ? 'bigornaouro' : randomCompleted() });
+      else comp();
+      if (won && Math.random() < 0.5) comp();
+      unit(0.3);
     }
-    if (stage >= 3 && Math.random() < 0.2) loot.push(randomSpecial());
-    if (stage >= 4 && won && Math.random() < 0.2) loot.push(randomArtifact());
-    if (stage >= 5 && won && Math.random() < 0.12) loot.push('forja');
-    if (stage >= 2 && Math.random() < 0.1) loot.push('colher');
-    if (this.portal === 'drones') loot.push(randomComponent());
-    p.gold += killed;
-    p.giveItems(loot);
-    p.send({ t: 'loot', items: loot, gold: killed });
-    if (!p.isBot) {
-      this.toast(p, `🎁 Saque: ${loot.map((i) => `${ITEMS[i].icon} ${ITEMS[i].name}`).join(', ')}${killed ? ` · +${killed} 💰` : ''}`, 'good');
+    if (stage >= 3 && Math.random() < 0.2) out.push({ item: randomSpecial() });
+    if (stage >= 4 && won && Math.random() < 0.2) out.push({ item: randomArtifact() });
+    if (stage >= 5 && won && Math.random() < 0.12) out.push({ item: 'forja' });
+    if (stage >= 2 && Math.random() < 0.1) out.push({ item: 'colher' });
+    if (this.portal === 'drones') out.push({ item: randomComponent() });
+    // ouro dos drones derrotados em moedinhas de até 3
+    for (let g = killed; g > 0;) { const n = Math.min(g, 1 + Math.floor(Math.random() * 3)); out.push({ gold: n }); g -= n; }
+    this.dropOrbs(p, out);
+  }
+
+  orbKind(c: OrbContent): OrbKind {
+    if (c.gold) return 'cinza';
+    if (c.unit) return UNITS[c.unit].cost >= 3 ? 'azul' : 'cinza';
+    const it = c.item ? ITEMS[c.item] : null;
+    if (!it) return 'cinza';
+    return it.component || c.item === 'bigorna' ? 'azul' : 'ouro';
+  }
+
+  /** Espalha os orbes pelo seu lado do tabuleiro (coordenadas do mundo 3D). */
+  dropOrbs(p: Player, contents: OrbContent[]) {
+    for (const content of contents) {
+      let x = 0, z = 0;
+      for (let k = 0; k < 30; k++) {
+        x = (Math.random() - 0.5) * 9.2; z = 1.4 + Math.random() * 3.4;
+        if (p.orbs.every((o) => Math.hypot(o.x - x, o.z - z) > 1.1)) break;
+      }
+      p.orbs.push({ id: `o${unitCounter++}`, kind: this.orbKind(content), x: +x.toFixed(2), z: +z.toFixed(2), content });
     }
+    if (p.isBot || !p.connected) { this.collectOrbs(p); return; }
+    if (stageOf(this.round).stage <= 2 && contents.length) this.toast(p, '🫧 Saque no chão! Clique no tabuleiro para a sua Pequena Lenda ir pegar os orbes.', 'good');
+  }
+
+  /** Abre um orbe e entrega o conteúdo. */
+  pickOrb(p: Player, id: string, quiet = false): boolean {
+    const k = p.orbs.findIndex((o) => o.id === id);
+    if (k < 0) return false;
+    const [o] = p.orbs.splice(k, 1);
+    const c: OrbContent = { ...o.content };
+    if (c.gold) p.gold += c.gold;
+    if (c.item) {
+      p.giveItems([c.item]);
+      if (p.isBot && isAnvil(c.item) && !p.choice) this.openAnvil(p, p.itemBench.lastIndexOf(c.item));
+    }
+    if (c.unit) {
+      const slot = p.freeBenchSlot();
+      if (slot >= 0 && (this.pool[c.unit] ?? 0) > 0) {
+        this.takeFromPool(c.unit);
+        p.units.push({ id: newUnitId(), defId: c.unit, star: 1, items: [], loc: { zone: 'bench', i: slot } });
+        this.tryMerge(p);
+      } else {
+        // banco cheio: vira ouro
+        const g = UNITS[c.unit].cost;
+        p.gold += g;
+        if (!p.isBot && !quiet) this.toast(p, `Banco cheio: ${UNITS[c.unit].name} virou +${g} 💰`);
+        c.gold = g;
+        delete c.unit;
+      }
+    }
+    if (!quiet) p.send({ t: 'orbOpen', id: o.id, x: o.x, z: o.z, kind: o.kind, content: c });
+    return true;
+  }
+
+  /** Recolhe tudo que ficou no chão (antes do combate ou ao sair). */
+  collectOrbs(p: Player) {
+    if (!p.orbs.length) return;
+    const names: string[] = [];
+    for (const o of [...p.orbs]) {
+      const c = o.content;
+      names.push(c.gold ? `+${c.gold} 💰` : c.item ? `${ITEMS[c.item].icon} ${ITEMS[c.item].name}` : c.unit ? `🤖 ${UNITS[c.unit].name}` : '');
+      this.pickOrb(p, o.id, true);
+    }
+    if (!p.isBot) this.toast(p, `🫧 Saque recolhido sozinho: ${names.join(', ')}`, 'good');
+  }
+
+  /** Bigorna: escolha 1 entre 4 componentes (ou itens completos, na dourada). */
+  openAnvil(p: Player, index: number): boolean {
+    const item = p.itemBench[index];
+    if (!item || !isAnvil(item)) return false;
+    if (p.choice) { this.toast(p, 'Termine a escolha que está aberta primeiro.'); return false; }
+    p.itemBench.splice(index, 1);
+    const gold = item === 'bigornaouro';
+    const pool = gold ? COMPLETED.filter((i) => i !== 'maoleve') : [...COMPONENTS];
+    const options = pool.sort(() => Math.random() - 0.5).slice(0, 4);
+    p.choice = { kind: 'armory', title: gold ? '🛠️ Bigorna Dourada: escolha um item completo' : '⚒️ Bigorna: escolha um componente', options };
+    if (p.isBot) this.choose(p, botChoose(this, p));
+    return true;
   }
 
   /** Muambeiros: depois de cada combate contra jogador, chance de trazer muamba (mais se perdeu). */
@@ -1358,6 +1460,7 @@ export class Room {
       me: {
         gold: p.gold, level: p.level, xp: p.xp, xpNeeded: p.xpNeeded(), shop: p.shop, units: p.units,
         itemBench: p.itemBench, augments: p.augments, choice: p.choice, freeRerolls: p.freeRerolls,
+        orbs: p.orbs.map((o) => ({ id: o.id, kind: o.kind, x: o.x, z: o.z })),
         locked: p.locked, streak: p.streak, ready: p.ready, hp: p.hp, alive: p.alive,
       },
     });

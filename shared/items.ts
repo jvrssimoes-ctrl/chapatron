@@ -129,6 +129,11 @@ special('xerox', 'Xerox Clandestino', '📠', 'Arraste até um robô de custo 1 
 
 special('forja', 'Forja Radiante', '🌟', 'Arraste até um robô: transforma o primeiro item completo dele na versão Radiante (atributos dobrados e bônus extra).');
 
+// bigornas: saem dos orbes de saque; clique (ou arraste num robô) para escolher o item
+special('bigorna', 'Bigorna de Componente', '⚒️', 'Clique (ou arraste até um robô): abre a bigorna e você escolhe 1 entre 4 componentes.');
+special('bigornaouro', 'Bigorna Dourada', '🛠️', 'Clique (ou arraste até um robô): abre a bigorna e você escolhe 1 entre 4 itens completos.');
+export const ANVILS = ['bigorna', 'bigornaouro'];
+export const isAnvil = (id: string) => ANVILS.includes(id);
 export const SPECIALS = ['pedecabra', 'reforjador', 'xerox'];
 export const isSpecial = (id: string) => !!ITEMS[id]?.special;
 

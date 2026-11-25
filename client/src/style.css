@@ -1177,3 +1177,50 @@ body.tristar-flash::after { content: ''; position: fixed; inset: 0; pointer-even
 .gd-team-items { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--muted); }
 .gd-team-items i img { width: 22px; height: 22px; } .gd-team-items span { margin-left: 6px; }
 .gd-team-tip { font-size: 11px; color: var(--muted); margin: 6px 0 0; font-style: italic; }
+/* ---- painel de dano: abas e legenda ---- */
+.dm-tabs { display: flex; gap: 3px; margin-bottom: 6px; }
+.dm-tabs button { flex: 1; border: 0; border-radius: 7px; padding: 4px 2px; font: 800 10.5px Nunito, sans-serif; color: #b9a6e8; background: rgba(255, 255, 255, 0.06); cursor: pointer; }
+.dm-tabs button.on { background: rgba(155, 255, 93, 0.2); color: #e9ffd8; box-shadow: inset 0 0 0 1px rgba(155, 255, 93, 0.45); }
+.dm-legend { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; font: 700 10px Nunito, sans-serif; color: #9a8abd; margin: -2px 0 6px; }
+.dm-legend i { display: inline-block; width: 9px; height: 6px; border-radius: 2px; margin-right: -4px; }
+.dm-legend .ph, .dm-bar .ph { background: linear-gradient(90deg, #ff8a3d, #ffb35d); }
+.dm-legend .mg, .dm-bar .mg { background: linear-gradient(90deg, #8b5dff, #c58bff); }
+.dm-legend .tr, .dm-bar .tr { background: linear-gradient(90deg, #e8e8f0, #ffffff); }
+.dm-legend .hl, .dm-bar .hl { background: linear-gradient(90deg, #2fb44a, #8dff9e); }
+.dm-legend .sd, .dm-bar .sd { background: linear-gradient(90deg, #8fd8ff, #e8f6ff); }
+.dm-bar > div { transition: width 0.25s; }
+
+/* ---- celular e toque ---- */
+html, body { overscroll-behavior: none; }
+body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+#hud, #hud * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+#chatInput { -webkit-user-select: text; user-select: text; }
+#rotateHint { display: none; }
+@media (pointer: coarse) {
+  .btn { min-height: 34px; }
+  #itemBench .islot { min-width: 30px; min-height: 30px; }
+}
+/* telas baixas (celular deitado): HUD encolhido para sobrar tabuleiro */
+@media (max-height: 620px) {
+  #hud > .panel, #choice, #inspect, #toasts { zoom: 0.78; }
+  .coach { zoom: 0.85; }
+  #chat { display: none; }
+}
+@media (max-height: 480px) {
+  #hud > .panel, #choice, #inspect, #toasts { zoom: 0.64; }
+  .coach { zoom: 0.72; }
+  #tooltip { zoom: 0.85; }
+  #odds, #interest { display: none; }
+}
+/* celular em pé: pede para girar */
+@media (orientation: portrait) and (max-width: 700px) {
+  body:has(#hud:not(.hidden)) #rotateHint {
+    display: flex; position: fixed; inset: 0; z-index: 200; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    background: radial-gradient(circle at 50% 40%, #2a1650, #0c0718); color: #ecdcff; text-align: center; padding: 24px;
+  }
+  #rotateHint div { font-size: 54px; animation: rotHint 1.8s ease-in-out infinite; }
+  #rotateHint b { font: 22px Bungee, sans-serif; color: #9bff5d; }
+  #rotateHint p { margin: 0; color: #b9a6e8; }
+  #menu .btn, #lobby .btn { min-height: 40px; }
+}
+@keyframes rotHint { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }

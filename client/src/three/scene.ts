@@ -3,9 +3,9 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { UNITS, sellValue } from '../../../shared/data';
 import { ITEMS, boardCap } from '../../../shared/items';
 import { BENCH_SIZE, BOARD_ROWS, COLS, COMBAT_ROWS, hexDist } from '../../../shared/hex';
-import type { Loc, OwnedUnit } from '../../../shared/types';
+import type { Loc, OrbKind, OwnedUnit } from '../../../shared/types';
 import { net } from '../net';
-import { AB_COLOR, Replay, type Effect, type RU } from '../replay';
+import { AB_COLOR, Replay, STATUS_ICON, type Effect, type RU } from '../replay';
 import { sfx } from '../sfx';
 import { store } from '../store';
 import { buildRobot, disposeRobot, type FaceExpr, type RobotModel } from './models';
@@ -25,7 +25,9 @@ interface Av { m: AvatarModel; look: string; pos: THREE.Vector3; target: THREE.V
 interface Shot { mesh: THREE.Mesh; from: THREE.Vector3; target: string; start: number; dur: number; last: boolean; dmg: number }
 /** canto do oponente (lado de cima) */
 const AV_AWAY = new THREE.Vector3(6.5, 0.08, -5.5);
-interface Orb { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; item: string | null; gold: number; born: number; x: number; z: number }
+interface Orb { id: string; mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; kind: OrbKind; born: number; x: number; z: number; sent: number }
+type OrbOpen = (typeof store.orbOpens)[number];
+const ORB_COLORS: Record<OrbKind, string> = { cinza: '#d6dde6', azul: '#4db3ff', ouro: '#ffd23f' };
 interface Pop { text: string; pos: THREE.Vector3; start: number; color: string; big?: boolean }
 
 export interface HoverInfo {
@@ -159,10 +161,10 @@ export class Scene3D {
   // Fumacinha (avatar), carrossel e orbes de saque
   private avatars = new Map<string, Av>();
   private myWalk = AV_HOME.clone();
-  private orbWalk = false;
   private orbs: Orb[] = [];
   private orbGeo = new THREE.IcosahedronGeometry(0.26, 2);
-  private lootSeen = 0;
+  private lootGeo = new THREE.IcosahedronGeometry(0.36, 3);
+  private orbGeoBig = new THREE.IcosahedronGeometry(0.46, 3);
   private pops: Pop[] = [];
   private carDeco: { ring: THREE.Mesh; barrier: THREE.Mesh; pole: THREE.Group } | null = null;
   private lastPhase = '';
@@ -211,6 +213,30 @@ export class Scene3D {
     window.addEventListener('pointermove', (e) => this.onMove(e));
     window.addEventListener('pointerup', (e) => this.onUp(e));
     this.overlay.addEventListener('contextmenu', (e) => e.preventDefault());
+    // celular: segurar o dedo num robô abre o painel dele (igual ao botão direito)
+    let press: { x: number; y: number; timer: number } | null = null;
+    const cancelPress = () => { if (press) { clearTimeout(press.timer); press = null; } };
+    this.overlay.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || !this.active) return;
+      cancelPress();
+      const x = e.clientX, y = e.clientY;
+      press = {
+        x, y, timer: window.setTimeout(() => {
+          press = null;
+          const or = this.overlay.getBoundingClientRect();
+          const hit = this.itemHits.find((h) => x - or.left >= h.x - 3 && x - or.left <= h.x + h.s + 3 && y - or.top >= h.y - 3 && y - or.top <= h.y + h.s + 3);
+          if (hit && this.cb.hoverItem) { this.cb.hoverItem(hit.id, x, y); return; }
+          const key = this.unitUnder(x, y);
+          if (!key) return;
+          if (this.drag) { this.drag = null; this.cb.dragging(false, 0); }
+          navigator.vibrate?.(20);
+          this.cb.inspect?.(key);
+        }, 480),
+      };
+    });
+    window.addEventListener('pointermove', (e) => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 12) cancelPress(); });
+    window.addEventListener('pointerup', cancelPress);
+    window.addEventListener('pointercancel', cancelPress);
     this.layout();
   }
 
@@ -1378,7 +1404,6 @@ export class Scene3D {
     } else {
       if (this.scouting() || this.phase === 'gameover') return;
       this.myWalk.set(Math.max(-6.8, Math.min(6.8, g.x)), TILE_Y, Math.max(-6.0, Math.min(6.2, g.z)));
-      this.orbWalk = false;
     }
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
@@ -1421,7 +1446,7 @@ export class Scene3D {
     const st = store.state;
     const phase = this.phase ?? '';
     if (phase !== this.lastPhase) {
-      if (this.lastPhase === 'carousel' || phase === 'planning') { this.myWalk.copy(AV_HOME); this.orbWalk = false; }
+      if (this.lastPhase === 'carousel') this.myWalk.copy(AV_HOME);
       this.lastPhase = phase;
     }
     const car = this.active && phase === 'carousel' ? store.carousel : null;
@@ -1610,67 +1635,67 @@ export class Scene3D {
   }
 
   private updateOrbs(now: number, dt: number) {
-    // novos saques viram orbes caindo no seu lado do tabuleiro
-    while (this.lootSeen < store.loot.length) {
-      const l = store.loot[this.lootSeen++];
-      const drops: { item: string | null; gold: number }[] = l.items.map((item) => ({ item, gold: 0 }));
-      if (l.gold > 0) drops.push({ item: null, gold: l.gold });
-      for (const dr of drops) {
-        const it = dr.item ? ITEMS[dr.item] : null;
-        const color = !it ? '#ffd23f' : it.special ? '#3dffb0' : it.component ? '#7ad7ff' : '#c58bff';
-        const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.1, roughness: 0.25, metalness: 0.2, transparent: true, opacity: 0.92 });
-        const mesh = new THREE.Mesh(this.orbGeo, mat);
-        const x = (Math.random() - 0.5) * 9.5, z = 1.3 + Math.random() * 3.6;
-        mesh.position.set(x, 5, z);
-        mesh.castShadow = true;
-        this.scene.add(mesh);
-        this.orbs.push({ mesh, mat, item: dr.item, gold: dr.gold, born: now + this.orbs.length * 180, x, z });
-      }
+    const st = store.state;
+    const list = st?.me.orbs ?? [];
+    const ids = new Set(list.map((o) => o.id));
+    // orbes novos caem do céu no seu lado do tabuleiro
+    let k = 0;
+    for (const o of list) {
+      if (this.orbs.some((x) => x.id === o.id)) continue;
+      const color = ORB_COLORS[o.kind];
+      const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
+      const mesh = new THREE.Mesh(o.kind === 'ouro' ? this.orbGeoBig : this.lootGeo, mat);
+      mesh.position.set(o.x, 5, o.z);
+      mesh.castShadow = true;
+      this.scene.add(mesh);
+      this.orbs.push({ id: o.id, mesh, mat, kind: o.kind, born: now + k++ * 160, x: o.x, z: o.z, sent: 0 });
     }
-    if (!this.orbs.length) {
-      if (this.orbWalk) { this.orbWalk = false; this.myWalk.copy(AV_HOME); }
-      return;
-    }
+    // orbes que o servidor já abriu ou recolheu
+    for (const o of [...this.orbs]) if (!ids.has(o.id)) this.removeOrb(o);
+    // aberturas: estouro + nome do que saiu
+    while (store.orbOpens.length) this.openOrbFx(store.orbOpens.shift()!, now);
+    const show = !!st && this.active && !this.scouting() && !this.inCombatView && (this.phase === 'planning' || this.phase === 'portal');
     const me = this.avatars.get(store.youId);
     const t = now / 1000;
-    let nearest: Orb | null = null, nd = Infinity;
-    for (const o of [...this.orbs]) {
+    for (const o of this.orbs) {
+      o.mesh.visible = show;
+      if (!show) continue;
       const age = (now - o.born) / 1000;
-      // queda com quique
       const fall = Math.max(0, age);
       const h = fall < 0.6 ? 5 * (1 - (fall / 0.6) ** 2) : Math.abs(Math.sin((fall - 0.6) * 7)) * 0.5 * Math.exp(-(fall - 0.6) * 3);
-      o.mesh.position.set(o.x, 0.45 + h + (fall > 1.4 ? Math.sin(t * 3 + o.x) * 0.08 : 0), o.z);
-      o.mesh.rotation.y += dt * 1.5;
-      o.mat.emissiveIntensity = 0.9 + Math.sin(t * 5 + o.z) * 0.35;
-      if (age > 0.8 && Math.random() < dt * 4) this.emit(o.mesh.position.clone(), { vel: new THREE.Vector3(0, 0.8, 0), spread: 0.25, life: 0.6, s0: 0.2, s1: 0.02, color: '#' + o.mat.color.getHexString(), alpha: 0.8, additive: true });
-      const close = me && Math.hypot(me.pos.x - o.x, me.pos.z - o.z) < 0.7;
-      if ((close && age > 0.6) || age > 14) { this.collectOrb(o, now); continue; }
-      if (me && age > 0.6) {
-        const d = Math.hypot(me.pos.x - o.x, me.pos.z - o.z);
-        if (d < nd) { nd = d; nearest = o; }
+      o.mesh.position.set(o.x, 0.5 + h + (fall > 1.4 ? Math.sin(t * 2.4 + o.x) * 0.1 : 0), o.z);
+      o.mesh.rotation.y += dt * 1.2;
+      o.mat.emissiveIntensity = (o.kind === 'ouro' ? 1.2 : 0.8) + Math.sin(t * 4 + o.z) * 0.3;
+      if (age > 0.8 && Math.random() < dt * (o.kind === 'ouro' ? 8 : 3)) {
+        this.emit(o.mesh.position.clone(), { vel: new THREE.Vector3(0, 0.8, 0), spread: 0.3, life: 0.7, s0: 0.22, s1: 0.02, color: ORB_COLORS[o.kind], alpha: 0.8, additive: true });
       }
-    }
-    // a Fumacinha vai sozinha buscar os orbes (fora do carrossel)
-    if (nearest && this.phase !== 'carousel' && (this.orbWalk || this.myWalk.distanceTo(AV_HOME) < 0.1)) {
-      this.orbWalk = true;
-      this.myWalk.set(nearest.x, TILE_Y, nearest.z);
+      // a Pequena Lenda encostou: pede pro servidor abrir (reenvia se demorar)
+      if (me && age > 0.6 && now - o.sent > 1500 && Math.hypot(me.pos.x - o.x, me.pos.z - o.z) < 0.75) {
+        o.sent = now;
+        net.send({ t: 'pickOrb', id: o.id });
+      }
     }
   }
 
-  private collectOrb(o: Orb, now: number) {
+  private removeOrb(o: Orb) {
     this.orbs.splice(this.orbs.indexOf(o), 1);
     this.scene.remove(o.mesh);
     o.mat.dispose();
-    const p = o.mesh.position.clone();
-    const color = '#' + o.mat.color.getHexString();
-    for (let i = 0; i < 18; i++) {
-      this.emit(p, { vel: new THREE.Vector3((Math.random() - 0.5) * 3, 1 + Math.random() * 2.5, (Math.random() - 0.5) * 3), life: 0.7, s0: 0.3, s1: 0.04, color, alpha: 0.9, additive: true });
-    }
-    const it = o.item ? ITEMS[o.item] : null;
-    this.pops.push({ text: it ? `${it.icon} ${it.name}` : `+${o.gold} 💰`, pos: p, start: now, color: it ? color : '#ffd23f' });
-    sfx(it ? 'equip' : 'buy');
   }
 
+  private openOrbFx(e: OrbOpen, now: number) {
+    const p = new THREE.Vector3(e.x, 0.8, e.z);
+    const color = ORB_COLORS[e.kind];
+    for (let i = 0; i < 22; i++) {
+      this.emit(p, { vel: new THREE.Vector3((Math.random() - 0.5) * 3.2, 1 + Math.random() * 2.8, (Math.random() - 0.5) * 3.2), life: 0.8, s0: 0.32, s1: 0.04, color, alpha: 0.9, additive: true });
+    }
+    const c = e.content;
+    const it = c.item ? ITEMS[c.item] : null;
+    const u = c.unit ? UNITS[c.unit] : null;
+    const text = it ? `${it.icon} ${it.name}` : u ? `🤖 ${u.name}` : `+${c.gold ?? 0} 💰`;
+    this.pops.push({ text, pos: p.setY(1.4), start: now, color: it || u ? color : '#ffd23f', big: e.kind === 'ouro' });
+    sfx(it || u ? 'equip' : 'buy');
+  }
   private drawAvatarOverlay(now: number, unit: number) {
     const ctx = this.octx;
     const st = store.state!;
@@ -1796,6 +1821,7 @@ export class Scene3D {
         const ru = this.replay?.units.get(Number(uv.key.slice(2)));
         if (ru && ru.alive) {
           this.bars(p.x, p.y, ru.init.star, ru.mine, ru.hp, ru.maxHp, ru.shield, ru.mana, ru.maxMana, unit, ru.init.uid);
+          this.statusIcons(p.x, p.y, ru, unit);
           if (info.items?.length) this.itemRow(p.x, p.y + unit * 1.55, info.items, unit);
         }
       } else {
@@ -1959,6 +1985,30 @@ export class Scene3D {
 
   /** vida "fantasma" que desce devagar depois do dano (rastro amarelo, igual TFT) */
   private hpLag = new Map<number, number>();
+
+  /** Ícones de status ativos (atordoado, queimando, cego...) à direita da barra de vida. */
+  private statusIcons(x: number, y: number, ru: RU, unit: number) {
+    const now = performance.now();
+    const on = (Object.keys(ru.st) as (keyof typeof ru.st)[]).filter((k) => (ru.st[k] ?? 0) > now && STATUS_ICON[k]);
+    if (!on.length) return;
+    const ctx = this.octx;
+    const s = Math.max(11, unit * 0.95);
+    let px = x + unit * 2.2 + 6 + s / 2;
+    const py = y + unit * 0.35;
+    ctx.save();
+    ctx.font = `${Math.round(s * 0.78)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const k of on.slice(0, 4)) {
+      const left = ((ru.st[k] ?? 0) - now) / 1000;
+      ctx.globalAlpha = left < 0.4 ? 0.4 + Math.sin(now / 50) * 0.3 : 1;
+      ctx.fillStyle = k === 'buff' || k === 'reflect' || k === 'dodge' || k === 'stealth' || k === 'rage' ? 'rgba(20,60,30,0.85)' : 'rgba(70,14,24,0.88)';
+      ctx.beginPath(); ctx.arc(px, py, s / 2 + 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillText(STATUS_ICON[k]!, px, py + 1);
+      px += s + 3;
+    }
+    ctx.restore();
+  }
 
   private bars(x: number, y: number, star: number, mine: boolean, hp: number, maxHp: number, shield: number, mana: number, maxMana: number, unit: number, uid: number) {
     const ctx = this.octx;

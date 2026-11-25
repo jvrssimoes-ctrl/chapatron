@@ -18,7 +18,16 @@ export interface RU {
   lungeAt: number; lungeTo: number | null; castAt: number; castKind: FxKind | null; castColor: string;
   shotAt: number; atkCount: number; hitAt: number;
   tg: number | null;
+  /** status ativos (até quando) para os ícones em cima da barra */
+  st: Partial<Record<StatusKind | 'stun' | 'buff', number>>;
 }
+
+/** Ícones dos status mostrados ao lado da barra de vida. */
+export const STATUS_ICON: Partial<Record<StatusKind | 'stun' | 'buff', string>> = {
+  stun: '💫', burn: '🔥', blind: '🙈', slow: '🐌', silence: '🔇', mark: '🎯', taunt: '😠', virus: '🦠',
+  reflect: '🪞', rage: '💢', dodge: '💨', stealth: '👻', buff: '⏫',
+};
+const NEGATIVE: (StatusKind | 'stun')[] = ['stun', 'burn', 'blind', 'slow', 'silence', 'mark', 'taunt', 'virus'];
 
 export type Effect =
   | { k: 'proj'; from: number; to: number; start: number; dur: number; color: string; big?: boolean; bolt?: boolean; fromCast?: boolean }
@@ -70,7 +79,7 @@ export class Replay {
       hp: u.hp, maxHp: u.maxHp, mana: u.mana, maxMana: u.maxMana, shield: u.shield,
       alive: true, deathAt: 0, flashAt: -1e9, stunUntil: 0, buffUntil: 0, stealthUntil: 0, spawnAt: at,
       lungeAt: -1e9, lungeTo: null, castAt: -1e9, castKind: null, castColor: '#ffffff',
-      tg: null, shotAt: -1e9, atkCount: 0, hitAt: -1e9,
+      tg: null, shotAt: -1e9, atkCount: 0, hitAt: -1e9, st: {},
     });
   }
 
@@ -182,11 +191,15 @@ export class Replay {
         break;
       case 'stun':
         u.stunUntil = now + e.dur;
+        u.st.stun = now + e.dur;
         break;
       case 'buff':
         u.buffUntil = Math.max(u.buffUntil, now + e.dur);
+        u.st.buff = u.buffUntil;
         break;
       case 'status': {
+        if (e.s === 'cleanse') for (const k of NEGATIVE) delete u.st[k];
+        else u.st[e.s] = Math.max(u.st[e.s] ?? 0, now + e.dur);
         if (e.s === 'stealth') {
           u.stealthUntil = now + e.dur;
           this.fx.push({ k: 'puff', r: u.r, c: u.c, start: now, dur: 700, seed: Math.random() * 10 });

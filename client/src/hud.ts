@@ -3,7 +3,7 @@ import {
   abilityText, isCarouselRound, star3Power, isPveRound, stageLabel, traitText,
 } from '../../shared/data';
 import { AUGMENTS, TIER_COLOR, TIER_NAME, traitBonus } from '../../shared/augments';
-import { ALL_COMPONENTS, ITEMS, boardCap, combine, statsText } from '../../shared/items';
+import { ALL_COMPONENTS, ANVILS, ITEMS, boardCap, combine, statsText } from '../../shared/items';
 import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../../shared/traits';
 import { PORTALS, interestCap, rerollCost } from '../../shared/portals';
 import { recommendedItems, rolesForItem } from '../../shared/recommend';
@@ -294,6 +294,11 @@ function initItemsAndChoices(hooks: HudHooks) {
       ghost.remove();
       slot.classList.remove('lifted');
       hooks.itemDrag(null);
+      // clique (sem arrastar) numa bigorna: abre a escolha
+      const still = Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 8;
+      if (drag && gid && ANVILS.includes(gid) && still) { net.send({ t: 'useItem', item: drag.i }); sfx('click'); drag = null; return; }
+      // celular: tocar num item mostra a dica dele
+      if (drag && gid && still && e.pointerType === 'touch') { showTip(itemTipHtml(gid), ev.clientX, ev.clientY - 40); drag = null; return; }
       if (drag) hooks.dropItem(drag.i, ev.clientX, ev.clientY);
       drag = null;
     };
@@ -404,8 +409,39 @@ function renderChoice() {
     <button id="choiceHide" class="btn small ghost">👁 Ver tabuleiro</button></div>`;
 }
 
+/** Celular: segurar o dedo na loja, sinergias ou aprimoramentos mostra a dica (sem comprar). */
+function initTouchTips() {
+  let press: { timer: number; x: number; y: number } | null = null;
+  let swallow = false;
+  const cancel = () => { if (press) { clearTimeout(press.timer); press = null; } };
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    const t = e.target as HTMLElement;
+    if (!t.closest('#tooltip')) hideTip();
+    const zone = t.closest('#shop, #traits, #augs, #players');
+    cancel();
+    if (!zone) return;
+    const x = e.clientX, y = e.clientY;
+    press = {
+      x, y, timer: window.setTimeout(() => {
+        press = null;
+        swallow = true;
+        t.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y - 50 }));
+        navigator.vibrate?.(15);
+      }, 450),
+    };
+  }, { capture: true });
+  window.addEventListener('pointermove', (e) => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 12) cancel(); }, { capture: true });
+  window.addEventListener('pointerup', cancel, { capture: true });
+  // depois de segurar, o "clique" de soltar não compra nem seleciona nada
+  window.addEventListener('click', (e) => { if (swallow) { swallow = false; e.stopPropagation(); e.preventDefault(); } }, { capture: true });
+  window.addEventListener('pointerdown', () => { if (!press) swallow = false; });
+}
+
 export function initHud(hooks: HudHooks) {
   initItemsAndChoices(hooks);
+  initDmgMeter();
+  initTouchTips();
   $('xpBtn').onclick = () => { net.send({ t: 'xp' }); sfx('xp'); };
   $('rerollBtn').onclick = () => { net.send({ t: 'reroll' }); sfx('reroll'); };
   $('lockBtn').onclick = () => { net.send({ t: 'lock' }); sfx('click'); };
@@ -483,7 +519,7 @@ export function initHud(hooks: HudHooks) {
   $('traits').addEventListener('mouseleave', hideTip);
   $('leftTabs').addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest('button') as HTMLElement | null;
-    if (b) { sfx('click'); setLeftTab(b.dataset.tab as 'traits' | 'dmg'); }
+    if (b) { sfx('click'); autoTab = false; setLeftTab(b.dataset.tab as 'traits' | 'dmg'); }
   });
   $('players').addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest('.prow') as HTMLElement | null;
@@ -692,8 +728,24 @@ export function setLeftTab(tab: 'traits' | 'dmg' | 'toggle') {
   renderDmg(true);
 }
 
-/** Dano causado por cada robô seu no combate atual (ou no último). */
+type Metric = 'dealt' | 'taken' | 'sustain';
+let metric: Metric = 'dealt';
+const METRICS: [Metric, string, string][] = [['dealt', '⚔️ Causado', 'Dano causado'], ['taken', '🛡️ Recebido', 'Dano recebido (vida + escudo)'], ['sustain', '💚 Cura', 'Cura e escudos recebidos']];
+let autoTab = false;
+let lastPhaseSeen = '';
+
+/** No combate o painel troca sozinho para o Dano; na preparação volta para as Sinergias. */
+function autoSwitchTab(phase: string) {
+  if (phase === lastPhaseSeen) return;
+  lastPhaseSeen = phase;
+  if (phase === 'combat' && leftTab === 'traits') { autoTab = true; setLeftTab('dmg'); }
+  else if (phase === 'planning' && autoTab && leftTab === 'dmg') { autoTab = false; setLeftTab('traits'); }
+}
+
+/** Dano causado/recebido e cura de cada robô seu no combate atual (ou no último). */
 function renderDmg(force = false) {
+  const st = store.state;
+  if (st) autoSwitchTab(st.phase);
   if (leftTab !== 'dmg') return;
   const now = performance.now();
   if (!force && now - lastDmgAt < 200) return;
@@ -703,38 +755,72 @@ function renderDmg(force = false) {
   if (!cb) { el.innerHTML = '<div class="hint">O dano de cada robô aparece aqui durante o combate.</div>'; return; }
   const elapsed = now - store.combatStartedAt;
   const mine = cb.result.units.filter((u) => u.side === cb.mySide);
-  const stat = new Map<number, { phys: number; magic: number; taken: number; heal: number }>();
-  for (const u of mine) stat.set(u.uid, { phys: 0, magic: 0, taken: 0, heal: 0 });
+  const stat = new Map<number, { phys: number; magic: number; tru: number; taken: number; takenM: number; heal: number; shield: number }>();
+  for (const u of mine) stat.set(u.uid, { phys: 0, magic: 0, tru: 0, taken: 0, takenM: 0, heal: 0, shield: 0 });
+  const sh = new Map<number, number>();
+  for (const u of cb.result.units) sh.set(u.uid, u.shield);
   for (const e of cb.result.events) {
     if (e.t > elapsed) break;
     if (e.k === 'dmg') {
       const s = e.s !== undefined ? stat.get(e.s) : undefined;
-      if (s) { if (e.magic) s.magic += e.amt; else s.phys += e.amt; }
+      if (s) { if (e.tru) s.tru += e.amt; else if (e.magic) s.magic += e.amt; else s.phys += e.amt; }
       const v = stat.get(e.u);
-      if (v) v.taken += e.amt;
+      if (v) { if (e.magic) v.takenM += e.amt; else v.taken += e.amt; }
+      sh.set(e.u, e.sh);
     } else if (e.k === 'heal') {
       const v = stat.get(e.u);
       if (v) v.heal += e.amt;
+    } else if (e.k === 'shield') {
+      const v = stat.get(e.u);
+      const gain = e.sh - (sh.get(e.u) ?? 0);
+      if (v && gain > 0) v.shield += gain;
+      sh.set(e.u, e.sh);
     }
   }
-  const rows = mine.map((u) => ({ u, ...stat.get(u.uid)! })).sort((a, b) => b.phys + b.magic - (a.phys + a.magic));
-  const max = Math.max(1, ...rows.map((r) => r.phys + r.magic));
-  const total = rows.reduce((s, r) => s + r.phys + r.magic, 0);
-  const key = rows.map((r) => `${r.u.uid}:${r.phys}:${r.magic}:${r.taken}`).join('|');
+  // segmentos de cada barra por métrica: [valor, classe]
+  const segs = (r: NonNullable<ReturnType<typeof stat.get>>): [number, string][] =>
+    metric === 'dealt' ? [[r.phys, 'ph'], [r.magic, 'mg'], [r.tru, 'tr']]
+      : metric === 'taken' ? [[r.taken, 'ph'], [r.takenM, 'mg']]
+        : [[r.heal, 'hl'], [r.shield, 'sd']];
+  const rows = mine.map((u) => {
+    const r = stat.get(u.uid)!;
+    const parts = segs(r);
+    return { u, r, parts, all: parts.reduce((s, p) => s + p[0], 0) };
+  }).sort((a, b) => b.all - a.all);
+  const max = Math.max(1, ...rows.map((r) => r.all));
+  const total = rows.reduce((s, r) => s + r.all, 0);
+  const key = metric + rows.map((r) => `${r.u.uid}:${r.all}`).join('|');
   if (key === lastDmgKey && !force) return;
   lastDmgKey = key;
   const done = elapsed > cb.result.duration;
   const fmt = (n: number) => (n >= 10000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
-  el.innerHTML = `<div class="dm-head"><span>${done ? 'Último combate' : 'Ao vivo'} · vs ${esc(cb.opponentName)}</span><b>${fmt(total)}</b></div>` +
-    rows.map((r, i) => {
-      const d = UNITS[r.u.defId];
-      const all = r.phys + r.magic;
-      return `<div class="dm-row" style="--cc:${COST_COLORS[d.cost] ?? '#888'}" title="Físico ${fmt(r.phys)} · Mágico ${fmt(r.magic)} · Recebido ${fmt(r.taken)} · Curado ${fmt(r.heal)}">
+  const legend = metric === 'dealt' ? '<i class="ph"></i>físico <i class="mg"></i>mágico <i class="tr"></i>verdadeiro'
+    : metric === 'taken' ? '<i class="ph"></i>físico <i class="mg"></i>mágico' : '<i class="hl"></i>cura <i class="sd"></i>escudo';
+  const crown = metric === 'dealt' ? '👑 ' : metric === 'taken' ? '🧱 ' : '💚 ';
+  el.innerHTML = `<div class="dm-tabs">${METRICS.map(([m, l, t]) => `<button data-metric="${m}" class="${m === metric ? 'on' : ''}" title="${t}">${l}</button>`).join('')}</div>
+    <div class="dm-head"><span>${done ? 'Último combate' : 'Ao vivo'} · vs ${esc(cb.opponentName)}</span><b>${fmt(total)}</b></div>
+    <div class="dm-legend">${legend}</div>` +
+    rows.map((x, i) => {
+      const d = UNITS[x.u.defId];
+      const r = x.r;
+      return `<div class="dm-row" style="--cc:${COST_COLORS[d.cost] ?? '#888'}" title="Físico ${fmt(r.phys)} · Mágico ${fmt(r.magic)} · Verdadeiro ${fmt(r.tru)} · Recebido ${fmt(r.taken + r.takenM)} · Curado ${fmt(r.heal)} · Escudo ${fmt(r.shield)}">
         <img src="${robotPortrait(d.id, d.look)}" alt="">
         <div class="dm-main">
-          <div class="dm-top"><span>${i === 0 && all > 0 ? '👑 ' : ''}${esc(d.name)} <i>${'★'.repeat(r.u.star)}</i></span><b>${fmt(all)}</b></div>
-          <div class="dm-bar"><div class="ph" style="width:${(100 * r.phys) / max}%"></div><div class="mg" style="width:${(100 * r.magic) / max}%"></div></div>
+          <div class="dm-top"><span>${i === 0 && x.all > 0 ? crown : ''}${esc(d.name)} <i>${'★'.repeat(x.u.star)}</i></span><b>${fmt(x.all)}</b></div>
+          <div class="dm-bar">${x.parts.map(([v, c]) => `<div class="${c}" style="width:${(100 * v) / max}%"></div>`).join('')}</div>
         </div>
       </div>`;
     }).join('');
+}
+
+/** Troca de métrica no painel de dano. */
+export function initDmgMeter() {
+  $('dmgMeter').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest('[data-metric]') as HTMLElement | null;
+    if (!b) return;
+    metric = b.dataset.metric as Metric;
+    autoTab = false;
+    sfx('click');
+    renderDmg(true);
+  });
 }
