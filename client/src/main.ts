@@ -11,6 +11,8 @@ import { checkTips } from './tips';
 import { initEmotes, showEmote } from './emotes';
 import { closeProfile, isProfileOpen, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
 import { closeInspect, initInspect, inspect, isInspectOpen } from './inspect';
+import { closePicker, isPickerOpen, myLookKey, openPicker } from './avatarPicker';
+import { hidePortalVote, onPortalMsg } from './portalVote';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -46,6 +48,7 @@ function show(s: Screen) {
   if (s === 'menu') initParade();
   if (s !== 'game') setMusic('menu');
   $('menuMute').classList.toggle('hidden', s === 'game');
+  $('menuFs').classList.toggle('hidden', s === 'game');
   $('menuMute').textContent = isMuted() ? '🔇' : '🔊';
   $('muteBtn').textContent = isMuted() ? '🔇' : '🔊';
   requestAnimationFrame(() => board.layout());
@@ -67,13 +70,13 @@ function myName() {
 
 $('createBtn').onclick = () => {
   sfx('click');
-  net.send({ t: 'create', name: myName(), token: token! });
+  net.send({ t: 'create', name: myName(), token: token!, avatar: myLookKey() });
 };
 $('joinBtn').onclick = () => {
   sfx('click');
   const room = codeInput.value.trim().toUpperCase();
   if (room.length !== 4) { $('menuError').textContent = 'O código da sala tem 4 letras.'; return; }
-  net.send({ t: 'join', name: myName(), room, token: token! });
+  net.send({ t: 'join', name: myName(), room, token: token!, avatar: myLookKey() });
 };
 codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 
@@ -122,7 +125,33 @@ $('leaveBtn').onclick = () => { location.href = location.pathname; };
 $('guideBtn').onclick = () => openGuide();
 $('menuGuideBtn').onclick = () => openGuide();
 $('profileBtn').onclick = () => openProfile();
+$('avatarBtn').onclick = () => openPicker();
+$('lobbyAvatarBtn').onclick = () => openPicker();
 $('menuMute').onclick = () => { $('menuMute').textContent = toggleMute() ? '🔇' : '🔊'; };
+
+// ---------------- tela cheia ----------------
+
+function toggleFullscreen() {
+  sfx('click');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {
+    const msg = 'Seu navegador bloqueou a tela cheia — tente F11.';
+    if (screen === 'menu') $('menuError').textContent = msg;
+    else toast(msg, 'bad');
+  });
+}
+function syncFullscreen() {
+  const on = !!document.fullscreenElement;
+  for (const id of ['fsBtn', 'menuFs']) {
+    const b = $(id);
+    b.classList.toggle('on', on);
+    b.title = on ? 'Sair da tela cheia (F11)' : 'Tela cheia (F11)';
+  }
+  requestAnimationFrame(() => board.layout());
+}
+$('fsBtn').onclick = toggleFullscreen;
+$('menuFs').onclick = toggleFullscreen;
+document.addEventListener('fullscreenchange', syncFullscreen);
 
 // ---------------- rede ----------------
 
@@ -137,7 +166,7 @@ net.on((msg) => {
     case 'joined':
       store.youId = msg.youId;
       store.room = msg.room;
-      net.setRejoin({ t: 'join', name: myName(), room: msg.room, token: token! });
+      net.setRejoin({ t: 'join', name: myName(), room: msg.room, token: token!, avatar: myLookKey() });
       history.replaceState(null, '', `?sala=${msg.room}`);
       $('menuError').textContent = '';
       break;
@@ -159,6 +188,7 @@ net.on((msg) => {
         if (msg.phase === 'planning') { store.scoutId = null; setLeftTab('traits'); }
         if (msg.phase === 'carousel') { store.scoutId = null; closeInspect(); banner('<b>🎠 CARROSSEL</b><small>clique no chão para andar e pegue um robô!</small>', 'silver'); }
         if (msg.phase !== 'carousel') store.carousel = null;
+        if (msg.phase !== 'portal') hidePortalVote();
         prevPhase = msg.phase;
       }
       setMusic(msg.phase === 'combat' ? 'combat' : msg.phase === 'gameover' ? 'menu' : 'planning');
@@ -212,6 +242,10 @@ net.on((msg) => {
       if (mine && mine.picked >= 0 && (minePrev?.picked ?? -1) < 0) sfx('buy');
       break;
     }
+    case 'portal':
+      if (screen !== 'game' && store.state) show('game');
+      onPortalMsg(msg);
+      break;
     case 'loot':
       store.loot.push({ items: msg.items, gold: msg.gold, at: performance.now() });
       break;
@@ -219,7 +253,7 @@ net.on((msg) => {
       chatLine(msg.from, msg.msg);
       break;
     case 'emote':
-      showEmote(msg.from, msg.e);
+      showEmote(msg.from, msg.e, (from, emoji) => board.avatarEmote(from, emoji));
       break;
     case 'toast':
       toast(msg.msg, msg.kind ?? 'info');
@@ -238,9 +272,11 @@ net.on((msg) => {
 // ---------------- teclado ----------------
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); return; }
   if (e.key === 'Escape' && isGuideOpen()) { closeGuide(); return; }
   if (e.key === 'Escape' && isProfileOpen()) { closeProfile(); return; }
   if (e.key === 'Escape' && isInspectOpen()) { closeInspect(); return; }
+  if (e.key === 'Escape' && isPickerOpen()) { closePicker(); return; }
   if ((e.target as HTMLElement).tagName !== 'INPUT' && e.key.toLowerCase() === 'h') { toggleGuide(); return; }
   if (screen !== 'game' || (e.target as HTMLElement).tagName === 'INPUT') return;
   const k = e.key.toLowerCase();
@@ -284,7 +320,7 @@ initMenuFx();
 show('menu');
 if (urlRoom && nameInput.value) {
   // volta direto pra sala do link (ex.: recarregou a página)
-  net.send({ t: 'join', name: myName(), room: urlRoom.toUpperCase(), token: token! });
+  net.send({ t: 'join', name: myName(), room: urlRoom.toUpperCase(), token: token!, avatar: myLookKey() });
 }
 
 function loop(now: number) {

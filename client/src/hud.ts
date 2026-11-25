@@ -1,10 +1,11 @@
 import {
-  AD_STAR_MULT, BASE_CRIT, COST_COLORS, HP_STAR_MULT, MAX_LEVEL, REROLL_COST, ROLES, TRAITS, UNITS, XP_COST,
+  AD_STAR_MULT, BASE_CRIT, COST_COLORS, HP_STAR_MULT, MAX_LEVEL, REROLL_COST, ROLES, SHOP_ODDS, TRAITS, UNITS, XP_COST,
   abilityText, isPveRound, stageLabel, traitText,
 } from '../../shared/data';
 import { AUGMENTS, TIER_COLOR, TIER_NAME, traitBonus } from '../../shared/augments';
-import { COMPONENTS, ITEMS, combine, statsText } from '../../shared/items';
-import { computeTraits } from '../../shared/traits';
+import { ALL_COMPONENTS, ITEMS, boardCap, combine, statsText } from '../../shared/items';
+import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../../shared/traits';
+import { PORTALS, interestCap, rerollCost } from '../../shared/portals';
 import type { TraitId } from '../../shared/types';
 import type { HoverInfo } from './three/scene';
 import { net } from './net';
@@ -82,7 +83,7 @@ export function unitTipHtml(info: HoverInfo) {
     for (const [k, v] of Object.entries(ITEMS[id]?.stats ?? {})) st[k as keyof typeof st] += v as number;
   }
   const role = ROLES[def.role];
-  const traits = def.traits.map((t) => `<span class="tt-trait" style="color:${TRAITS[t].color}">${traitImg(t, TRAITS[t].color)} ${TRAITS[t].name}</span>`).join('');
+  const traits = unitTraits(def.id, items).map((t) => `<span class="tt-trait${def.traits.includes(t) ? '' : ' emb'}" style="color:${TRAITS[t].color}">${traitImg(t, TRAITS[t].color)} ${TRAITS[t].name}</span>`).join('');
   const hpMax = Math.round(def.hp * HP_STAR_MULT[star - 1] + st.hp);
   const hp = info.hp !== undefined ? `${info.hp}/${info.maxHp}` : String(hpMax);
   const stars = info.star ? `<span class="tt-stars s${info.star}">${'★'.repeat(info.star)}</span>` : '';
@@ -111,7 +112,7 @@ export function itemTipHtml(id: string) {
   if (!it) return '';
   let extra = '';
   if (it.component) {
-    extra = `<div class="tt-recipes">${COMPONENTS.map((c) => {
+    extra = `<div class="tt-recipes">${ALL_COMPONENTS.map((c) => {
       const r = ITEMS[combine(id, c)!];
       return `<div>${itemImg(c)}<span class="arr">›</span>${itemImg(r.id)} <b>${esc(r.name)}</b></div>`;
     }).join('')}</div>`;
@@ -122,7 +123,7 @@ export function itemTipHtml(id: string) {
     return `<div class="tt-head tt-item" style="border-color:#3dffb0">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>item especial</small></div>
     <div class="tt-ab">${esc(it.desc)}</div><div class="tt-hint">Some depois de usar.</div>`;
   }
-  return `<div class="tt-head tt-item" style="border-color:${it.component ? '#9aa3ad' : '#ffd23f'}">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>${it.component ? 'componente' : 'item completo'}</small></div>
+  return `<div class="tt-head tt-item" style="border-color:${it.component ? '#9aa3ad' : '#ffd23f'}">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>${it.component ? (id === 'colher' ? 'componente raro' : 'componente') : it.emblem ? 'emblema' : 'item completo'}</small></div>
     <div class="tt-istats">${statsText(it.stats)}</div>
     ${it.component ? '' : `<div class="tt-ab">${esc(it.desc)}</div>`}${extra}
     <div class="tt-hint">${it.component ? 'Arraste até um robô. Dois componentes no mesmo robô viram um item completo.' : 'Arraste até um robô para equipar.'}</div>`;
@@ -400,13 +401,17 @@ export function renderHud() {
   const me = s.me;
 
   // topo
-  const phaseName = s.phase === 'planning' ? 'Planejamento' : s.phase === 'combat' ? 'Combate' : s.phase === 'carousel' ? 'Carrossel' : s.phase === 'gameover' ? 'Fim de jogo' : '';
+  const phaseName = s.phase === 'planning' ? 'Planejamento' : s.phase === 'combat' ? 'Combate' : s.phase === 'carousel' ? 'Carrossel' : s.phase === 'portal' ? 'Portal' : s.phase === 'gameover' ? 'Fim de jogo' : '';
   const kind = s.pve ? '🤖 PvE' : '⚔️ PvP';
   const vs = s.phase === 'combat' && store.combat && store.combat.round === s.round
     ? ` <span class="vs">vs ${esc(store.combat.opponentName)}</span>` : '';
   $('roundLabel').innerHTML = `Estágio <b>${stageLabel(s.round)}</b> · ${kind} · ${phaseName}${vs}`;
   $('stageDots').innerHTML = stageDots(s.round);
   $('myHp').innerHTML = `❤️ <b>${Math.max(0, me.hp)}</b>`;
+  const pc = $('portalChip');
+  const portal = s.portal ? PORTALS[s.portal] : null;
+  pc.classList.toggle('hidden', !portal);
+  if (portal && pc.dataset.id !== portal.id) { pc.dataset.id = portal.id; pc.innerHTML = portal.icon; pc.style.setProperty('--pc', portal.color); pc.title = `Portal: ${portal.name} — ${portal.desc}`; }
   $('augs').innerHTML = me.augments.map((id) => {
     const a = AUGMENTS[id];
     return a ? `<div class="aug" data-id="${id}" style="--tier:${TIER_COLOR[a.tier]}">${augImg(id)}</div>` : '';
@@ -433,20 +438,23 @@ export function renderHud() {
     const gb = $('goldBox');
     gb.classList.remove('bump'); void gb.offsetWidth; gb.classList.add('bump');
   }
-  const cap = me.augments.includes('juroscomp') ? 7 : 5;
+  const cap = interestCap(s.portal, me.augments.includes('juroscomp'));
   $('interest').innerHTML = Array.from({ length: cap }, (_, i) => `<i class="${i < Math.min(cap, Math.floor(me.gold / 10)) ? 'on' : ''}"></i>`).join('');
-  $('rerollBtn').innerHTML = me.freeRerolls > 0 ? `🔄 Rolar <b>GRÁTIS</b> <kbd>D</kbd>` : `🔄 Rolar <b>2💰</b> <kbd>D</kbd>`;
+  $('rerollBtn').innerHTML = me.freeRerolls > 0 ? `🔄 Rolar <b>GRÁTIS</b> <kbd>D</kbd>` : `🔄 Rolar <b>${rerollCost(s.portal)}💰</b> <kbd>D</kbd>`;
   $('levelLabel').textContent = `Nível ${me.level}`;
   $('xpLabel').textContent = me.level >= MAX_LEVEL ? 'MÁX' : `${me.xp}/${me.xpNeeded}`;
   $('xpFill').style.width = me.level >= MAX_LEVEL ? '100%' : `${(100 * me.xp) / Math.max(1, me.xpNeeded)}%`;
   const nBoard = me.units.filter((u) => u.loc.zone === 'board').length;
   const bc = $('boardCount');
-  bc.textContent = `🤖 Em campo ${nBoard}/${me.level}`;
-  bc.className = nBoard > me.level ? 'over' : nBoard === me.level ? 'full' : 'room';
+  const capN = boardCap(me.level, me.units);
+  bc.textContent = `🤖 Em campo ${nBoard}/${capN}`;
+  bc.className = nBoard > capN ? 'over' : nBoard === capN ? 'full' : 'room';
+  const odds = SHOP_ODDS[me.level] ?? [];
+  $('odds').innerHTML = odds.map((o, i) => o > 0 ? `<span style="color:${COST_COLORS[i + 1]}"><i style="background:${COST_COLORS[i + 1]}"></i>${o}%</span>` : '').join('');
   const streak = $('streak');
   streak.textContent = me.streak >= 2 ? `🔥 ${me.streak}` : me.streak <= -2 ? `🧊 ${-me.streak}` : '';
   ($('xpBtn') as HTMLButtonElement).disabled = me.gold < XP_COST || me.level >= MAX_LEVEL || !me.alive;
-  ($('rerollBtn') as HTMLButtonElement).disabled = (me.gold < REROLL_COST && me.freeRerolls <= 0) || !me.alive;
+  ($('rerollBtn') as HTMLButtonElement).disabled = (me.gold < rerollCost(s.portal) && me.freeRerolls <= 0) || !me.alive;
   $('lockBtn').textContent = me.locked ? '🔒' : '🔓';
   $('lockBtn').classList.toggle('on', me.locked);
   const ready = $('readyBtn');
@@ -488,8 +496,8 @@ export function renderHud() {
   }
 
   // sinergias
-  const board = me.units.filter((u) => u.loc.zone === 'board').map((u) => u.defId);
-  const traits = computeTraits(board, traitBonus(me.augments));
+  const boardU = me.units.filter((u) => u.loc.zone === 'board');
+  const traits = computeTraits(boardU.map((u) => u.defId), mergeBonus(traitBonus(me.augments), emblemBonus(boardU)));
   const tKey = JSON.stringify(traits);
   if (tKey !== lastTraitsKey) {
     lastTraitsKey = tKey;
@@ -537,7 +545,7 @@ export function tickHud() {
   const s = store.state;
   if (!s) return;
   const left = Math.max(0, store.phaseEndsAt - performance.now());
-  const timed = s.phase === 'planning' || s.phase === 'carousel';
+  const timed = s.phase === 'planning' || s.phase === 'carousel' || s.phase === 'portal';
   const total = timed ? Math.max(1, s.phaseTotal) : Math.max(left, 1);
   const fill = $('timerFill');
   fill.style.width = timed ? `${(100 * left) / total}%` : '100%';

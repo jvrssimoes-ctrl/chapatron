@@ -2,7 +2,7 @@ import { AD_STAR_MULT, BASE_CRIT, BASE_CRIT_DMG, HP_STAR_MULT, TRAITS, UNITS } f
 import { COLS, COMBAT_ROWS, hexDist, lineHexes, localToCombat, neighbors } from '../shared/hex';
 import { COMPLETED, ITEMS } from '../shared/items';
 import { traitBonus } from '../shared/augments';
-import { computeTraits } from '../shared/traits';
+import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../shared/traits';
 import type { AbilityKind, CombatEvent, CombatResult, CombatUnitInit, StatusKind, TraitId, UnitDef } from '../shared/types';
 
 export interface SideUnit { defId: string; star: number; r: number; c: number; items?: string[] } // coords locais
@@ -165,7 +165,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
   const build = (side: 0 | 1, input: SideInput) => {
     const list = input.units;
     const augs = new Set(input.augments ?? []);
-    const traits = computeTraits(list.map((x) => x.defId), traitBonus(input.augments ?? []));
+    const traits = computeTraits(list.map((x) => x.defId), mergeBonus(traitBonus(input.augments ?? []), emblemBonus(list)));
     const tierOf = (id: TraitId) => traits.find((t) => t.id === id)?.tier ?? -1;
     const val = (id: TraitId) => {
       const tier = tierOf(id);
@@ -186,7 +186,8 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       if (!def) continue;
       const star = Math.max(1, Math.min(3, su.star));
       const [r, c] = localToCombat(su.r, su.c, side);
-      const hasT = (t: TraitId) => def.traits.includes(t);
+      const myTraits = unitTraits(su.defId, su.items ?? []);
+      const hasT = (t: TraitId) => myTraits.includes(t);
       if (hasT('jardineiro')) gardeners.push(c);
 
       // Mão Leve: troca por 2 itens completos aleatórios a cada combate

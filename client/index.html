@@ -32,7 +32,7 @@
         <button id="joinBtn" class="btn">Entrar</button>
       </div>
       <div id="menuError" class="error"></div>
-      <div class="menu-links"><button id="menuGuideBtn" class="btn small ghost">📖 Guia da Brisa</button><button id="profileBtn" class="btn small ghost">🏅 Perfil e conquistas</button></div>
+      <div class="menu-links"><button id="menuGuideBtn" class="btn small ghost">📖 Guia da Brisa</button><button id="profileBtn" class="btn small ghost">🏅 Perfil e conquistas</button><button id="avatarBtn" class="btn small ghost">🎨 Pequena Lenda</button></div>
       <details class="howto">
         <summary>Como jogar</summary>
         <ul>
@@ -68,7 +68,10 @@
         <button id="startBtn" class="btn primary">Começar partida</button>
       </div>
       <p id="waitHost" class="hint hidden">Esperando o anfitrião começar...</p>
-      <button id="leaveBtn" class="btn small ghost">Sair da sala</button>
+      <div class="row">
+        <button id="lobbyAvatarBtn" class="btn small ghost">🎨 Mudar Pequena Lenda</button>
+        <button id="leaveBtn" class="btn small ghost">Sair da sala</button>
+      </div>
     </div>
   </div>
 
@@ -76,7 +79,7 @@
   <div id="hud" class="hidden">
     <header id="topbar" class="panel">
       <div class="logo">CHAPA<span>TRON</span></div>
-      <div id="augs"></div>
+      <div id="augs"></div><div id="portalChip" class="hidden"></div>
       <div id="roundInfo">
         <div id="roundLabel"></div>
         <div id="stageDots"></div>
@@ -87,6 +90,7 @@
         <button id="guideBtn" class="btn small ghost" title="Guia do jogo (H)">📖</button>
         <button id="gfxBtn" class="btn small ghost" title="Qualidade gráfica (recarrega a página)">✨</button>
         <button id="muteBtn" class="btn small ghost" title="Som">🔊</button>
+        <button id="fsBtn" class="btn small ghost fs-btn" title="Tela cheia (F11)">⛶</button>
         <div id="myHp"></div>
       </div>
     </header>
@@ -123,6 +127,7 @@
         <div id="goldBox"><span class="coin">💰</span><span id="gold"></span><span id="streak"></span></div>
         <div id="interest" title="Juros: +1 a cada 10 de ouro"></div>
         <div id="boardCount"></div>
+        <div id="odds" title="Chance de cada custo aparecer na loja no seu nível"></div>
       </div>
       <div id="shopBtns">
         <button id="xpBtn" class="btn">⬆️ Comprar XP <b>4💰</b> <kbd>F</kbd></button>
@@ -138,6 +143,7 @@
   </div>
 
   <button id="menuMute" class="btn small ghost" title="Som">🔊</button>
+  <button id="menuFs" class="btn small ghost fs-btn" title="Tela cheia (F11)">⛶</button>
   <div id="gameover" class="hidden"></div>
   <div id="tooltip" class="hidden"></div>
   <div id="toasts"></div>

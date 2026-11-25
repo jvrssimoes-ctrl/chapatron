@@ -112,6 +112,8 @@ export interface ItemDef {
   component: boolean;
   /** consumível (Pé de Cabra, Reforjador, Xerox) */
   special?: boolean;
+  /** Emblema: o portador ganha essa sinergia */
+  emblem?: TraitId;
   recipe?: [string, string];
   stats: ItemStats;
   desc: string;
@@ -145,7 +147,7 @@ export type Loc = { zone: 'board'; r: number; c: number } | { zone: 'bench'; i: 
 
 export interface OwnedUnit extends UnitInst { loc: Loc }
 
-export type Phase = 'lobby' | 'carousel' | 'planning' | 'combat' | 'gameover';
+export type Phase = 'lobby' | 'portal' | 'carousel' | 'planning' | 'combat' | 'gameover';
 
 /** Carrossel compartilhado: robôs girando no meio, cada um com um item. */
 export interface CarouselUnit { defId: string; item: string; taken: string | null }
@@ -166,6 +168,8 @@ export interface PublicPlayer {
   gold: number;
   board: BoardPreviewUnit[];
   augments: string[];
+  /** visual da Pequena Lenda ("especie:cor") */
+  avatar: string;
 }
 
 export interface PrivateState {
@@ -186,7 +190,7 @@ export interface PrivateState {
   alive: boolean;
 }
 
-export interface LobbyPlayer { id: string; name: string; isBot: boolean; connected: boolean }
+export interface LobbyPlayer { id: string; name: string; isBot: boolean; connected: boolean; avatar: string }
 
 export interface CombatUnitInit {
   uid: number;
@@ -233,8 +237,10 @@ export interface CombatResult {
 // ---------- mensagens ----------
 
 export type ClientMsg =
-  | { t: 'create'; name: string; token: string }
-  | { t: 'join'; name: string; room: string; token: string }
+  | { t: 'create'; name: string; token: string; avatar?: string }
+  | { t: 'join'; name: string; room: string; token: string; avatar?: string }
+  /** muda o visual da Pequena Lenda ("especie:cor") */
+  | { t: 'avatar'; look: string }
   | { t: 'addBot' }
   | { t: 'kick'; id: string }
   | { t: 'start' }
@@ -250,7 +256,8 @@ export type ClientMsg =
   | { t: 'ready' }
   | { t: 'chat'; msg: string }
   | { t: 'emote'; e: number }
-  | { t: 'walk'; x: number; z: number };
+  | { t: 'walk'; x: number; z: number }
+  | { t: 'vote'; i: number };
 
 export type ServerMsg =
   | { t: 'joined'; room: string; youId: string }
@@ -266,12 +273,17 @@ export type ServerMsg =
       me: PrivateState;
       players: PublicPlayer[];
       opponentId: string | null;
+      /** regra especial da partida (portal votado) */
+      portal: string | null;
     }
-  | { t: 'combat'; round: number; mySide: 0 | 1; opponentName: string; pve: boolean; result: CombatResult; elapsed?: number }
+  /** home: lado dono do tabuleiro (o outro está visitando) · dmg: dano que o perdedor leva na vida */
+  | { t: 'combat'; round: number; mySide: 0 | 1; opponentName: string; opponentId?: string; pve: boolean; result: CombatResult; elapsed?: number; home: 0 | 1; dmg: number }
   | { t: 'gameover'; ranking: { id: string; name: string; place: number; isBot: boolean }[] }
   | { t: 'chat'; from: string; msg: string }
   | { t: 'emote'; from: string; e: number }
   | { t: 'carousel'; units: CarouselUnit[]; angle: number; spin: number; radius: number; avatars: CarouselAvatar[]; unlocked: string[]; locked: string[]; endsIn: number }
   | { t: 'loot'; items: string[]; gold: number }
+  /** votação do portal: votes = id do jogador → opção */
+  | { t: 'portal'; options: string[]; votes: Record<string, number>; endsIn: number; chosen: string | null }
   | { t: 'toast'; msg: string; kind?: 'info' | 'good' | 'bad' }
   | { t: 'error'; msg: string };

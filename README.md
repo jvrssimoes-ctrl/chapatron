@@ -65,7 +65,11 @@ O container tem verificação de saúde em `/health`. Se a conexão cair, o jogo
 - **Habilidades únicas**: cada um dos 49 robôs tem sua própria mecânica (saltos, empurrões, invocações, cegueira, provocação, furtividade, reflexo, vírus que espalha, queimaduras, roubo de mana...).
 - **Carrossel** (começo do jogo e toda rodada X-4): robôs com itens girando no centro. Clique no chão para andar com a sua **Fumacinha** e encoste no robô que quiser. Quem tem menos vida é liberado primeiro, de 2 em 2.
 - **Painel do robô**: clique direito num robô para ver vida, mana, habilidade, sinergias e itens (também durante o combate).
-
+- **Emblemas**: a 🥄 **Colher de Pau** (componente raro) + outro componente vira um Emblema que dá uma sinergia extra ao robô (Fumaceiro, Atirador, Brisado, Cósmico, Enferrujado, Verdinho, Bolado, Laricado). Duas colheres = 👨‍🍳 **Chapéu de Mestre-Cuca**: +1 robô em campo.
+- **Visita e dano**: no PvP um time viaja até o tabuleiro do outro (casa/fora). No fim, os robôs que sobraram atiram na Pequena Lenda de quem perdeu, e o dano aparece em cima dela.
+- **Pequena Lenda**: escolha espécie (Fumacinha, Cogubolota, Robolinho, Geleca) e cor no menu (🎨). Ela dança quando você manda emote, coleta os orbes de saque e mostra pilhas de moedas no canto (uma por 10 de ouro).
+- **Portais**: antes do primeiro carrossel todos votam numa regra especial da partida (Chuva de Grana, Feira Livre, Rodízio de Carrossel, Colchão de Fumaça...).
+- **Ajudas**: ao arrastar um robô o alcance dele aparece no tabuleiro, e as chances de cada custo na loja ficam embaixo do nível.
 ## Sinergias
 
 - **Verticais** (2/4/6): Verdinhos, Fumaceiros, Laricados, Enferrujados, Cósmicos, Bolados — e Atiradores/Brisados (2/4). Ficam muito fortes quando você fecha tudo.

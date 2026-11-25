@@ -531,9 +531,9 @@ export function isArmoryRound(round: number) {
   return s.stage >= 2 && s.sub === 5;
 }
 /** Carrossel compartilhado antes da rodada x-4 (e um no começo do jogo). */
-export function isCarouselRound(round: number) {
+export function isCarouselRound(round: number, portal?: string | null) {
   const s = stageOf(round);
-  return s.stage >= 2 && s.sub === 4;
+  return s.stage >= 2 && (s.sub === 4 || (portal === 'rodizio' && s.sub === 6));
 }
 export const STAGE_DAMAGE: Record<number, number> = { 1: 0, 2: 2, 3: 4, 4: 6, 5: 9, 6: 12, 7: 16 };
 /** Dano extra por robô sobrevivente do vencedor. */

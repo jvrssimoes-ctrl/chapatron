@@ -1,5 +1,37 @@
 import { TRAITS, UNITS } from './data';
+import { ITEMS } from './items';
 import type { TraitId } from './types';
+
+type Bonus = Partial<Record<TraitId, number>>;
+
+/** Sinergias do robô contando emblemas equipados. */
+export function unitTraits(defId: string, items: string[] = []): TraitId[] {
+  const base = UNITS[defId]?.traits ?? [];
+  const extra = items.map((i) => ITEMS[i]?.emblem).filter((t): t is TraitId => !!t && !base.includes(t));
+  return [...base, ...new Set(extra)];
+}
+
+/** Bônus de sinergia vindo dos emblemas (cada robô único conta 1 vez por sinergia). */
+export function emblemBonus(units: { defId: string; items?: string[] }[]): Bonus {
+  const out: Bonus = {};
+  const seen = new Set<string>();
+  for (const u of units) {
+    const base = UNITS[u.defId]?.traits ?? [];
+    for (const it of u.items ?? []) {
+      const t = ITEMS[it]?.emblem;
+      if (!t || base.includes(t) || seen.has(`${u.defId}:${t}`)) continue;
+      seen.add(`${u.defId}:${t}`);
+      out[t] = (out[t] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+export function mergeBonus(...bs: Bonus[]): Bonus {
+  const out: Bonus = {};
+  for (const b of bs) for (const [t, n] of Object.entries(b) as [TraitId, number][]) out[t] = (out[t] ?? 0) + n;
+  return out;
+}
 
 export interface ActiveTrait {
   id: TraitId;

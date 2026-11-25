@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { UNITS, sellValue } from '../../../shared/data';
-import { ITEMS } from '../../../shared/items';
-import { BENCH_SIZE, BOARD_ROWS, COLS, COMBAT_ROWS } from '../../../shared/hex';
+import { ITEMS, boardCap } from '../../../shared/items';
+import { BENCH_SIZE, BOARD_ROWS, COLS, COMBAT_ROWS, hexDist } from '../../../shared/hex';
 import type { Loc, OwnedUnit } from '../../../shared/types';
 import { net } from '../net';
 import { AB_COLOR, Replay, type Effect, type RU } from '../replay';
@@ -15,14 +15,17 @@ import { buildWorld, type World } from './world';
 import { Vfx } from './vfx';
 import { itemCanvas } from '../itemIcons';
 import { onSkin, skin } from '../skins';
-import { avatarColor, buildAvatar, type AvatarModel } from './avatar';
+import { buildAvatar, lookKey, parseLook, type AvatarModel } from './avatar';
 
 /** canto do tabuleiro onde a Fumacinha fica parada */
 const AV_HOME = new THREE.Vector3(-6.5, 0.08, 5.5);
 
-interface Av { m: AvatarModel; pos: THREE.Vector3; target: THREE.Vector3; yaw: number; moving: boolean; pickedAt: number }
+interface Av { m: AvatarModel; look: string; pos: THREE.Vector3; target: THREE.Vector3; yaw: number; moving: boolean; pickedAt: number; hurtAt: number; danceUntil: number; emote: { text: string; at: number } | null }
+interface Shot { mesh: THREE.Mesh; from: THREE.Vector3; target: string; start: number; dur: number; last: boolean; dmg: number }
+/** canto do oponente (lado de cima) */
+const AV_AWAY = new THREE.Vector3(6.5, 0.08, -5.5);
 interface Orb { mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; item: string | null; gold: number; born: number; x: number; z: number }
-interface Pop { text: string; pos: THREE.Vector3; start: number; color: string }
+interface Pop { text: string; pos: THREE.Vector3; start: number; color: string; big?: boolean }
 
 export interface HoverInfo {
   defId: string;
@@ -151,6 +154,13 @@ export class Scene3D {
   private pops: Pop[] = [];
   private carDeco: { ring: THREE.Mesh; barrier: THREE.Mesh; pole: THREE.Group } | null = null;
   private lastPhase = '';
+  private shots: Shot[] = [];
+  private shotMat = new THREE.MeshBasicMaterial({ color: '#ffe08a' });
+  private introKey = '';
+  private dmgKey = '';
+  private coins: THREE.Group[] = [];
+  private coinGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.06, 18);
+  private coinMat = new THREE.MeshStandardMaterial({ color: '#ffcf3f', metalness: 0.85, roughness: 0.3, emissive: '#5a3a00' });
 
   constructor(container: HTMLElement, private cb: BoardCallbacks) {
     this.quality = loadQuality();
@@ -589,7 +599,7 @@ export class Scene3D {
     if (JSON.stringify(from) === JSON.stringify(to)) return;
     const me = this.me!;
     const other = me.units.find((x) => JSON.stringify(x.loc) === JSON.stringify(to));
-    if (!other && to.zone === 'board' && from.zone === 'bench' && me.units.filter((x) => x.loc.zone === 'board').length >= me.level) {
+    if (!other && to.zone === 'board' && from.zone === 'bench' && me.units.filter((x) => x.loc.zone === 'board').length >= boardCap(me.level, me.units)) {
       sfx('error');
       net.send({ t: 'move', id: d.unit.id, to });
       return;
@@ -1188,6 +1198,8 @@ export class Scene3D {
     this.syncAvatars(now, dt);
     this.syncUnits(this.desired(now), now, dt);
     this.updateOrbs(now, dt);
+    this.updateCombatExtras(now);
+    this.updateCoins(now);
     this.updateFx(now);
     this.updateParticles(dt);
     this.updateTiles(t, !!combat);
@@ -1221,13 +1233,18 @@ export class Scene3D {
       hl = this.pick(this.drag.x, this.drag.y);
       valid = !!hl && (hl.zone === 'bench' || (hl.r >= BOARD_ROWS && this.phase === 'planning'));
     }
+    // alcance do robô arrastado (igual TFT): hexes que ele alcança a partir de onde vai cair
+    // visitando: o tabuleiro é do outro (cores trocadas)
+    const away = combat && !!store.combat && !store.combat.pve && store.combat.home !== store.combat.mySide;
+    const range = this.drag && hl && hl.zone === 'board' && valid ? UNITS[this.drag.unit.defId].range : 0;
     for (let r = 0; r < COMBAT_ROWS; r++) for (let c = 0; c < COLS; c++) {
       const m = this.tiles[r][c].material;
       const mine = r >= BOARD_ROWS;
       const pulse = 0.5 + Math.sin(t * 1.6 + r * 0.6 + c * 0.4) * 0.5;
       const sk = skin();
-      let color = mine ? (sc ? '#6f8fd0' : sk.mine[(r + c) % 2 ? 0 : 1]) : combat ? '#a86a9a' : sk.enemy[(r + c) % 2 ? 0 : 1];
+      let color = mine ? (sc ? '#6f8fd0' : away ? sk.enemy[(r + c) % 2 ? 0 : 1] : sk.mine[(r + c) % 2 ? 0 : 1]) : combat ? '#a86a9a' : sk.enemy[(r + c) % 2 ? 0 : 1];
       let glow = 0.02 + pulse * 0.04;
+      if (range && hl && hl.zone === 'board' && !(hl.r === r && hl.c === c) && hexDist(hl.r, hl.c, r, c) <= range) { color = mine ? '#bfe9ff' : '#ffb36b'; glow = 0.35 + pulse * 0.15; }
       if (hl && hl.zone === 'board' && hl.r === r && hl.c === c) { color = valid ? '#7dff9a' : '#ff5d5d'; glow = 0.9; }
       m.color.set(color);
       m.emissive.set(color).multiplyScalar(glow);
@@ -1324,10 +1341,16 @@ export class Scene3D {
     const want = new Map<string, { pos: THREE.Vector3; picked: boolean }>();
     if (this.active && st && phase !== 'gameover') {
       if (car) for (const a of car.avatars) want.set(a.id, { pos: new THREE.Vector3(a.x, TILE_Y, a.z), picked: a.picked >= 0 });
-      else if (!this.scouting() && st.me.alive) want.set(store.youId, { pos: this.myWalk, picked: false });
+      else if (!this.scouting()) {
+        if (st.me.alive) want.set(store.youId, { pos: this.myWalk, picked: false });
+        // no combate contra jogador, a Pequena Lenda do oponente fica no canto de lá
+        const opp = this.inCombatView && !store.combat?.pve ? store.combat?.opponentId : null;
+        if (opp && opp !== store.youId) want.set(opp, { pos: AV_AWAY, picked: false });
+      }
     }
     for (const [id, av] of this.avatars) {
-      if (want.has(id)) continue;
+      const look = lookKey(parseLook(st?.players.find((p) => p.id === id)?.avatar, id));
+      if (want.has(id) && av.look === look) continue;
       this.scene.remove(av.m.root);
       av.m.dispose();
       this.avatars.delete(id);
@@ -1336,12 +1359,14 @@ export class Scene3D {
     for (const [id, w] of want) {
       let av = this.avatars.get(id);
       if (!av) {
-        const m = buildAvatar(avatarColor(id));
+        const look = parseLook(st?.players.find((p) => p.id === id)?.avatar, id);
+        const m = buildAvatar(look);
         m.root.scale.setScalar(id === store.youId ? 1.55 : 1.3);
         this.scene.add(m.root);
         const start = id === store.youId && this.lastPhase !== 'carousel' ? AV_HOME : w.pos;
-        av = { m, pos: start.clone(), target: w.pos.clone(), yaw: 0, moving: false, pickedAt: -1e9 };
+        av = { m, look: lookKey(look), pos: start.clone(), target: w.pos.clone(), yaw: 0, moving: false, pickedAt: -1e9, hurtAt: -1e9, danceUntil: 0, emote: null };
         this.avatars.set(id, av);
+        if (id !== store.youId && !car) this.portalBurst(av.pos, '#c58bff');
       }
       if (w.picked && av.pickedAt < 0) av.pickedAt = now;
       if (!w.picked) av.pickedAt = -1e9;
@@ -1363,8 +1388,128 @@ export class Scene3D {
       } else av.yaw *= 1 - Math.min(1, dt * 4);
       av.m.root.position.copy(av.pos);
       av.m.root.rotation.y = av.yaw;
-      av.m.tick(t, av.moving, now - av.pickedAt < 1400);
+      const hurt = Math.max(0, 1 - (now - av.hurtAt) / 450);
+      av.m.tick(t, av.moving, now - av.pickedAt < 1400, hurt, av.danceUntil > now && !av.moving ? 1 : 0);
     }
+  }
+
+  /** Emote de um jogador: a Pequena Lenda dança e mostra o emoji em cima da cabeça. */
+  avatarEmote(id: string, text: string): boolean {
+    const av = this.avatars.get(id);
+    if (!av || !this.active) return false;
+    const now = performance.now();
+    av.danceUntil = now + 1800;
+    av.emote = { text, at: now };
+    return true;
+  }
+
+  private portalBurst(pos: THREE.Vector3, color: string) {
+    for (let i = 0; i < 26; i++) {
+      const a = (i / 26) * Math.PI * 2;
+      this.emit(pos.clone().add(new THREE.Vector3(Math.cos(a) * 0.5, 0.2, Math.sin(a) * 0.5)), {
+        vel: new THREE.Vector3(Math.cos(a) * 0.4, 2 + Math.random() * 2, Math.sin(a) * 0.4), life: 0.8, s0: 0.35, s1: 0.05, color, alpha: 0.9, additive: true,
+      });
+    }
+  }
+
+  /** Visita (casa/fora) no começo e tiros de dano na Pequena Lenda de quem perdeu no fim. */
+  private updateCombatExtras(now: number) {
+    const rp = this.replay;
+    const cm = store.combat;
+    if (rp && cm && this.inCombatView) {
+      // começo: quem está visitando chega por um portal
+      if (this.introKey !== this.replayKey && now >= rp.start) {
+        this.introKey = this.replayKey;
+        if (!cm.pve) {
+          const iAmAway = cm.home !== cm.mySide;
+          for (const u of rp.units.values()) {
+            if (u.mine !== iAmAway) continue;
+            u.spawnAt = now + Math.random() * 250;
+            this.portalBurst(hexWorld(u.r, u.c, new THREE.Vector3()), iAmAway ? '#7ad7ff' : '#ff7ad9');
+          }
+          if (iAmAway) { const me = this.avatars.get(store.youId); if (me) this.portalBurst(me.pos, '#7ad7ff'); }
+          sfx('whoosh');
+        }
+      }
+      // fim: os sobreviventes atiram na Pequena Lenda de quem perdeu
+      if (this.dmgKey !== this.replayKey && rp.ended && now > rp.start + rp.duration + 350) {
+        this.dmgKey = this.replayKey;
+        const draw = rp.winner === -1;
+        const iWon = rp.winner === rp.mySide;
+        const targets: string[] = [];
+        if (draw) { targets.push(store.youId); if (cm.opponentId) targets.push(cm.opponentId); }
+        else if (!iWon) targets.push(store.youId);
+        else if (!cm.pve && cm.opponentId) targets.push(cm.opponentId);
+        const shooters = draw ? [] : [...rp.units.values()].filter((u) => u.alive && u.mine === iWon).slice(0, 10);
+        for (const id of targets) {
+          if (!this.avatars.has(id) || cm.dmg <= 0) continue;
+          if (!shooters.length) {
+            this.shots.push({ mesh: new THREE.Mesh(this.orbGeo, this.shotMat), from: this.avatars.get(id)!.pos.clone().setY(6), target: id, start: now, dur: 500, last: true, dmg: cm.dmg });
+          }
+          shooters.forEach((u, i) => {
+            this.shots.push({
+              mesh: new THREE.Mesh(this.orbGeo, this.shotMat), from: this.ruWorld(u, now, new THREE.Vector3()).setY(1.3),
+              target: id, start: now + i * 110, dur: 650, last: i === shooters.length - 1, dmg: cm.dmg,
+            });
+          });
+        }
+        for (const s of this.shots) { s.mesh.scale.setScalar(0.55); s.mesh.visible = false; this.scene.add(s.mesh); }
+      }
+    }
+    for (const s of [...this.shots]) {
+      const av = this.avatars.get(s.target);
+      const p = (now - s.start) / s.dur;
+      if (p < 0) continue;
+      const to = (av ? av.pos : AV_HOME).clone().setY(0.9);
+      if (p < 1) {
+        s.mesh.visible = true;
+        s.mesh.position.copy(s.from).lerp(to, p);
+        s.mesh.position.y += Math.sin(p * Math.PI) * 2.2;
+        if (Math.random() < 0.6) this.emit(s.mesh.position.clone(), { life: 0.35, s0: 0.3, s1: 0.02, color: '#ffd23f', alpha: 0.8, additive: true });
+        continue;
+      }
+      this.scene.remove(s.mesh);
+      this.shots.splice(this.shots.indexOf(s), 1);
+      for (let i = 0; i < 12; i++) this.emit(to, { vel: new THREE.Vector3((Math.random() - 0.5) * 3, 1 + Math.random() * 2, (Math.random() - 0.5) * 3), life: 0.5, s0: 0.3, s1: 0.03, color: '#ff8a3d', alpha: 0.9, additive: true });
+      if (av) av.hurtAt = now;
+      sfx('hit', 30);
+      if (s.last) {
+        this.pops.push({ text: `-${s.dmg} ❤️`, pos: to.clone().setY(1.6), start: now, color: '#ff4d6a', big: true });
+        if (s.target === store.youId) sfx('slam');
+      }
+    }
+  }
+
+  /** Pilhas de moedas no canto: uma pilha cheia para cada 10 de ouro (juros). */
+  private updateCoins(now: number) {
+    const st = store.state;
+    const show = this.active && !!st && st.me.alive && !this.scouting() && st.phase !== 'gameover';
+    const gold = show ? st!.me.gold : 0;
+    const cap = st?.me.augments.includes('juroscomp') ? 7 : 5;
+    const full = Math.min(cap, Math.floor(gold / 10));
+    const rest = full < cap ? gold % 10 : 0;
+    const t = now / 1000;
+    for (let i = 0; i < cap + 1; i++) {
+      let g = this.coins[i];
+      if (!g) {
+        g = new THREE.Group();
+        for (let k = 0; k < 10; k++) {
+          const c = new THREE.Mesh(this.coinGeo, this.coinMat);
+          c.position.set((Math.random() - 0.5) * 0.04, 0.05 + k * 0.065, (Math.random() - 0.5) * 0.04);
+          c.rotation.y = Math.random() * Math.PI;
+          c.castShadow = true;
+          g.add(c);
+        }
+        g.position.set(-6.95, 0.0, 4.35 - i * 0.62);
+        this.scene.add(g);
+        this.coins[i] = g;
+      }
+      const n = i < full ? 10 : i === full ? rest : 0;
+      g.visible = show && n > 0;
+      g.children.forEach((c, k) => { c.visible = k < n; });
+      if (i < full) g.position.y = Math.sin(t * 2 + i) * 0.015;
+    }
+    for (let i = cap + 1; i < this.coins.length; i++) this.coins[i].visible = false;
   }
 
   private updateOrbs(now: number, dt: number) {
@@ -1468,13 +1613,61 @@ export class Scene3D {
         ctx.fillText(msg, p.x, p.y + unit * 0.15);
       }
     }
-    // textos dos orbes coletados
-    this.pops = this.pops.filter((pp) => now - pp.start < 1700);
+    // combate contra jogador: nome do oponente e aviso de visita
+    const cm = store.combat;
+    if (this.inCombatView && cm && !cm.pve) {
+      const opp = cm.opponentId ? this.avatars.get(cm.opponentId) : null;
+      if (opp) {
+        const p = this.project(this.tmp.copy(opp.pos).setY(1.5 * opp.m.root.scale.x));
+        ctx.font = `800 ${unit * 0.95}px Nunito, sans-serif`;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(10,5,20,0.85)';
+        ctx.fillStyle = '#ffb3d6';
+        ctx.strokeText(cm.opponentName, p.x, p.y);
+        ctx.fillText(cm.opponentName, p.x, p.y);
+      }
+      const rp = this.replay;
+      const since = rp ? now - rp.start : 1e9;
+      if (since >= 0 && since < 2600) {
+        const away = cm.home !== cm.mySide;
+        const msg = away ? `✈️ VISITANDO ${cm.opponentName.toUpperCase()}` : `🏠 ${cm.opponentName.toUpperCase()} VEIO TE VISITAR`;
+        const a = Math.min(1, since / 250, (2600 - since) / 400);
+        const p = this.project(new THREE.Vector3(0, 0, -6.4));
+        ctx.globalAlpha = a;
+        ctx.font = `${unit * 1.25}px Bungee, sans-serif`;
+        const tw = ctx.measureText(msg).width + 30;
+        ctx.fillStyle = 'rgba(15,8,30,0.8)';
+        ctx.beginPath();
+        ctx.roundRect(p.x - tw / 2, p.y - unit * 1.5, tw, unit * 2.3, 12);
+        ctx.fill();
+        ctx.fillStyle = away ? '#7ad7ff' : '#ff9ad9';
+        ctx.fillText(msg, p.x, p.y + unit * 0.15);
+        ctx.globalAlpha = 1;
+      }
+    }
+    // emotes em cima das Pequenas Lendas
+    for (const av of this.avatars.values()) {
+      if (!av.emote) continue;
+      const k = (now - av.emote.at) / 2200;
+      if (k >= 1) { av.emote = null; continue; }
+      const p = this.project(this.tmp.copy(av.pos).setY(av.m.height * av.m.root.scale.x + 0.7 + Math.min(k * 4, 1) * 0.3));
+      const s = unit * 2.4 * (k < 0.12 ? 0.6 + k * 3.4 : 1);
+      ctx.globalAlpha = Math.min(1, (1 - k) * 4);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - s * 0.35, s * 0.62, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = `${s * 0.8}px sans-serif`;
+      ctx.fillText(av.emote.text, p.x, p.y - s * 0.08);
+      ctx.globalAlpha = 1;
+    }
+    // textos flutuantes (orbes coletados, dano na Pequena Lenda)
+    this.pops = this.pops.filter((pp) => now - pp.start < (pp.big ? 2200 : 1700));
     for (const pp of this.pops) {
-      const k = (now - pp.start) / 1700;
+      const k = (now - pp.start) / (pp.big ? 2200 : 1700);
       const p = this.project(this.tmp.copy(pp.pos).setY(pp.pos.y + 0.6 + k * 1.4));
       ctx.globalAlpha = Math.min(1, (1 - k) * 2.5);
-      ctx.font = `900 ${unit * 1.25 * (1 + Math.max(0, 0.3 - k) * 1.5)}px Nunito, sans-serif`;
+      ctx.font = `900 ${unit * (pp.big ? 2.3 : 1.25) * (1 + Math.max(0, 0.3 - k) * 1.5)}px Nunito, sans-serif`;
       ctx.lineWidth = 4;
       ctx.strokeStyle = 'rgba(10,5,20,0.85)';
       ctx.fillStyle = pp.color;

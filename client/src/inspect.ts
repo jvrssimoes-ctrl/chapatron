@@ -1,5 +1,7 @@
 import { TRAITS, UNITS } from '../../shared/data';
 import { ITEMS } from '../../shared/items';
+import { traitBonus } from '../../shared/augments';
+import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../../shared/traits';
 import { esc, unitTipHtml } from './hud';
 import { itemImg } from './itemIcons';
 import { store } from './store';
@@ -59,11 +61,12 @@ function render() {
       (info.maxMana !== undefined && info.maxMana < 900 ? bar(info.mana ?? 0, info.maxMana, '#3d8bff', `${Math.round(info.mana ?? 0)} / ${info.maxMana} mana`) : '')
     : '';
   // sinergias do robô com a contagem atual do seu tabuleiro
-  const board = store.state?.me.units.filter((u) => u.loc.zone === 'board').map((u) => u.defId) ?? [];
-  const uniq = new Set(board);
-  const traits = def.traits.map((t) => {
+  const me = store.state?.me;
+  const boardU = me?.units.filter((u) => u.loc.zone === 'board') ?? [];
+  const active = computeTraits(boardU.map((u) => u.defId), mergeBonus(traitBonus(me?.augments ?? []), emblemBonus(boardU)));
+  const traits = unitTraits(def.id, info.items ?? []).map((t) => {
     const tr = TRAITS[t];
-    const n = [...uniq].filter((id) => UNITS[id]?.traits.includes(t)).length;
+    const n = active.find((a) => a.id === t)?.count ?? 0;
     const next = tr.breakpoints.find((b) => b > n);
     return `<div class="ins-trait" style="--c:${tr.color}"><b>${tr.icon} ${esc(tr.name)}</b><span>${tr.breakpoints.map((b) => `<em class="${n >= b ? 'on' : ''}">${b}</em>`).join('')}</span>${next ? `<small>faltam ${next - n}</small>` : '<small>completo!</small>'}</div>`;
   }).join('');

@@ -25,7 +25,8 @@ export function initEmotes() {
   });
 }
 
-export function showEmote(from: string, e: number) {
+/** onAvatar: mostra o emote em cima da Pequena Lenda (retorna false se ela não está na tela) */
+export function showEmote(from: string, e: number, onAvatar?: (from: string, emoji: string) => boolean) {
   const emoji = EMOTES[e]?.[0];
   if (!emoji) return;
   sfx('puff', 120);
@@ -45,6 +46,7 @@ export function showEmote(from: string, e: number) {
   const s = store.state;
   const isMe = from === store.youId;
   const isOpp = !!s && s.opponentId === from;
+  if (onAvatar?.(from, emoji)) return;
   if (isMe || isOpp) {
     const big = document.createElement('div');
     big.className = `emote-big ${isMe ? 'me' : 'opp'}`;

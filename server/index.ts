@@ -81,6 +81,7 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
       player = res;
+      if (typeof msg.avatar === 'string' && /^[a-z]{3,12}:\d$/.test(msg.avatar)) player.avatar = msg.avatar;
       player.send({ t: 'joined', room: room.code, youId: player.id });
       if (room.phase === 'lobby') room.broadcastLobby();
       else {

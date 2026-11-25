@@ -31,6 +31,7 @@ for (let g = 0; g < games; g++) {
   room.setTimer = () => {};
   for (let i = 0; i < 8; i++) room.players.push(new Player(`p${i}`, '', `Bot${i}`, true));
   room.startGame();
+  room.finishPortal(true);
   // carrossel: no simulador cada bot pega o robô que escolheria
   const skipCarousel = () => {
     if ((room.phase as string) !== 'carousel' || !room.carousel) return;

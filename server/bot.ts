@@ -1,7 +1,7 @@
 import { AUGMENTS, traitBonus } from '../shared/augments';
 import { MAX_LEVEL, stageOf, TRAITS, UNITS, XP_COST } from '../shared/data';
 import { BENCH_SIZE } from '../shared/hex';
-import { combine, isComponent, ITEMS, itemSlots } from '../shared/items';
+import { combine, emblemAllowed, isComponent, isEmblem, ITEMS, itemSlots } from '../shared/items';
 import { computeTraits } from '../shared/traits';
 import type { OwnedUnit, TraitId } from '../shared/types';
 import type { Player, Room } from './room';
@@ -366,11 +366,16 @@ function equipGain(u: OwnedUnit, item: string): number {
     const held = u.items.find(isComponent);
     if (held) {
       const made = combine(held, item)!;
+      if (isEmblem(made)) return emblemAllowed(UNITS[u.defId].traits, u.items.filter((x) => x !== held), made) ? 2.6 : -1;
+      if (made === 'chapeucuca') return u.items.includes('chapeucuca') ? -1 : 3.5;
       if (made === 'maoleve') return u.items.length > 1 ? -1 : 2;
       return wantsItem(u.defId, made);
     }
   }
   if (item === 'maoleve') return u.items.length === 0 ? 3 : -1;
+  if (isEmblem(item)) return emblemAllowed(UNITS[u.defId].traits, u.items, item) && itemSlots([...u.items, item]) <= 3 ? 2.6 : -1;
+  if (item === 'chapeucuca') return !u.items.includes('chapeucuca') && itemSlots([...u.items, item]) <= 3 ? 3.5 : -1;
+  if (item === 'colher') return u.items.some(isComponent) ? -1 : 0.4;
   if (itemSlots([...u.items, item]) > 3) return -1;
   return wantsItem(u.defId, item);
 }

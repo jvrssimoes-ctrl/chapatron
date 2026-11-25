@@ -1,4 +1,4 @@
-import type { ItemDef, ItemStats } from './types';
+import type { ItemDef, ItemStats, TraitId } from './types';
 
 // ======================= COMPONENTES =======================
 // 8 componentes básicos. Dois componentes juntos = 1 item completo (36 combinações).
@@ -19,6 +19,10 @@ comp('pochete', 'Pochete', '🎒', { hp: 150 }, '+150 Vida');
 comp('luvas', 'Luvas de Lã', '🧤', { crit: 20 }, '+20% Chance de Crítico');
 
 export const COMPONENTS = ['isqueiro', 'seda', 'cachimbo', 'colirio', 'lataria', 'aluminio', 'pochete', 'luvas'];
+// componente raro: vira Emblema (não entra nos sorteios comuns de componente)
+comp('colher', 'Colher de Pau', '🥄', {}, 'Componente raro. Combine com outro componente para criar um Emblema (dá uma sinergia extra). Duas colheres = Chapéu de Mestre-Cuca.');
+/** todos os componentes, incluindo a Colher de Pau (tabelas de receita) */
+export const ALL_COMPONENTS = [...COMPONENTS, 'colher'];
 
 // ======================= ITENS COMPLETOS =======================
 
@@ -76,6 +80,43 @@ full('maleta', 'pochete', 'luvas', 'Maleta de Ferramentas', '🧰', 'Causa +20% 
 full('maoleve', 'luvas', 'luvas', 'Mão Leve', '🎁', 'Ocupa os 3 espaços. A cada combate, equipa 2 itens completos aleatórios.');
 
 export const COMPLETED = Object.values(ITEMS).filter((i) => !i.component && !i.special).map((i) => i.id);
+
+// ======================= EMBLEMAS (Colher de Pau + componente) =======================
+
+function emblem(id: string, comp: string, trait: TraitId, traitName: string, icon: string) {
+  ITEMS[id] = {
+    id, name: `Emblema ${traitName}`, icon, component: false, recipe: ['colher', comp], emblem: trait,
+    stats: { ...ITEMS[comp].stats },
+    desc: `O portador ganha a sinergia ${traitName}. Não pode ir num robô que já é ${traitName}.`,
+  };
+}
+emblem('emb_fumaceiro', 'isqueiro', 'fumaceiro', 'Fumaceiro', '💨');
+emblem('emb_atirador', 'seda', 'atirador', 'Atirador', '🎯');
+emblem('emb_brisa', 'cachimbo', 'brisa', 'Brisado', '🌀');
+emblem('emb_cosmico', 'colirio', 'cosmico', 'Cósmico', '🌌');
+emblem('emb_ferrugem', 'lataria', 'ferrugem', 'Enferrujado', '⚙️');
+emblem('emb_verdinho', 'aluminio', 'verdinho', 'Verdinho', '🌿');
+emblem('emb_tanque', 'pochete', 'tanque', 'Bolado', '🛡️');
+emblem('emb_larica', 'luvas', 'larica', 'Laricado', '🍩');
+ITEMS.chapeucuca = {
+  id: 'chapeucuca', name: 'Chapéu de Mestre-Cuca', icon: '👨‍🍳', component: false, recipe: ['colher', 'colher'], stats: {},
+  desc: 'Equipado num robô em campo: +1 robô no tabuleiro.',
+};
+
+export const EMBLEMS = Object.values(ITEMS).filter((i) => i.emblem).map((i) => i.id);
+export const isEmblem = (id: string) => !!ITEMS[id]?.emblem;
+
+/** Pode equipar este emblema? (não pode já ter a sinergia nem repetir) */
+export function emblemAllowed(unitTraits: TraitId[], items: string[], emblemId: string) {
+  const t = ITEMS[emblemId]?.emblem;
+  if (!t) return true;
+  return !unitTraits.includes(t) && !items.some((i) => ITEMS[i]?.emblem === t);
+}
+
+/** Limite de robôs no tabuleiro (nível + Chapéu de Mestre-Cuca em campo). */
+export function boardCap(level: number, units: { items: string[]; loc: { zone: string } }[]) {
+  return level + (units.some((u) => u.loc.zone === 'board' && u.items.includes('chapeucuca')) ? 1 : 0);
+}
 
 // ======================= ITENS ESPECIAIS (consumíveis) =======================
 

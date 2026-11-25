@@ -1,5 +1,5 @@
 import { COST_COLORS, TRAITS, UNITS } from '../../shared/data';
-import { computeTraits } from '../../shared/traits';
+import { computeTraits, emblemBonus, mergeBonus } from '../../shared/traits';
 import { traitBonus } from '../../shared/augments';
 import type { TraitId } from '../../shared/types';
 import { traitImg } from './emblems';
@@ -81,7 +81,7 @@ export function trackState() {
   const board = me.units.filter((u) => u.loc.zone === 'board');
   if (board.length) {
     lastBoard = board.map((u) => ({ d: u.defId, s: u.star }));
-    const tr = computeTraits(board.map((u) => u.defId), traitBonus(me.augments));
+    const tr = computeTraits(board.map((u) => u.defId), mergeBonus(traitBonus(me.augments), emblemBonus(board)));
     lastTraits = tr.filter((t) => t.tier >= 0).slice(0, 3).map((t) => t.id);
     if (tr.some((t) => TRAITS[t.id].style === 'vertical' && TRAITS[t.id].breakpoints.length >= 3 && t.tier === TRAITS[t.id].breakpoints.length - 1)) unlock('vertical');
   }

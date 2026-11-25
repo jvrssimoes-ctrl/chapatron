@@ -5,11 +5,12 @@ import {
   stageDamage, stageLabel, stageOf, survivorDamage,
 } from '../shared/data';
 import { AUGMENTS, augmentPool, traitBonus } from '../shared/augments';
-import { computeTraits } from '../shared/traits';
-import { COMPLETED, COMPONENTS, ITEMS, SPECIALS, combine, isComponent, isSpecial, itemSlots } from '../shared/items';
+import { computeTraits, emblemBonus, mergeBonus } from '../shared/traits';
+import { COMPLETED, COMPONENTS, EMBLEMS, ITEMS, SPECIALS, boardCap, combine, emblemAllowed, isComponent, isEmblem, isSpecial, itemSlots } from '../shared/items';
 import { BENCH_SIZE, BOARD_ROWS, COLS } from '../shared/hex';
 import type { AugTier, CarouselUnit, Choice, ClientMsg, CombatResult, Loc, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
 import { simulate, type SideInput } from './combat';
+import { PORTALS, PORTAL_IDS, interestCap, rerollCost } from '../shared/portals';
 import { botChoose, botPlan } from './bot';
 
 const MAX_PLAYERS = 8;
@@ -38,6 +39,7 @@ const pick = <T>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
 const randomComponent = () => pick(COMPONENTS);
 const randomCompleted = () => pick(COMPLETED.filter((i) => i !== 'maoleve'));
 const randomSpecial = () => pick(SPECIALS);
+const randomEmblem = () => pick(EMBLEMS);
 
 export class Player {
   ws: WebSocket | null = null;
@@ -59,6 +61,7 @@ export class Player {
   lastChatAt = 0;
   lastEmoteAt = 0;
   lastOpp: string | null = null;
+  avatar = '';
   opponentId: string | null = null;
 
   constructor(public id: string, public token: string, public name: string, public isBot: boolean) {}
@@ -68,6 +71,7 @@ export class Player {
   benchUnits() { return this.units.filter((u) => u.loc.zone === 'bench'); }
   xpNeeded() { return this.level >= MAX_LEVEL ? 0 : XP_TO_LEVEL[this.level]; }
   hasAug(id: string) { return this.augments.includes(id); }
+  cap() { return boardCap(this.level, this.units); }
   freeBenchSlot(): number {
     const used = new Set(this.benchUnits().map((u) => (u.loc as { i: number }).i));
     for (let i = 0; i < BENCH_SIZE; i++) if (!used.has(i)) return i;
@@ -106,10 +110,13 @@ export class Room {
   phaseTotal = 0;
   timer: NodeJS.Timeout | null = null;
   pool: Record<string, number> = {};
-  pendingCombats: { a: Player; b: Player | null; ghost: boolean; result: CombatResult; pve: boolean }[] = [];
+  pendingCombats: { a: Player; b: Player | null; ghost: boolean; result: CombatResult; pve: boolean; home?: 0 | 1 }[] = [];
   lastActivity = Date.now();
   combatStartedAt = 0;
   augTiers: AugTier[] = [];
+  /** regra especial da partida (votada no começo) */
+  portal: string | null = null;
+  portalVote: { options: string[]; votes: Map<string, number>; end: number } | null = null;
   private playerCounter = 1;
 
   /** Reenvia o combate em andamento para quem reconectou no meio dele. */
@@ -119,11 +126,11 @@ export class Room {
     for (const c of this.pendingCombats) {
       if (c.a === p) {
         const name = c.pve ? 'Drones da Patrulha' : c.ghost ? `${c.b!.name} (fantasma)` : c.b!.name;
-        p.send({ t: 'combat', round: this.round, mySide: 0, opponentName: name, pve: c.pve, result: c.result, elapsed });
+        p.send({ t: 'combat', round: this.round, mySide: 0, opponentName: name, opponentId: c.b?.id, pve: c.pve, result: c.result, elapsed, home: c.home ?? 0, dmg: this.combatDamage(c.result, c.pve) });
         return;
       }
       if (c.b === p && !c.ghost && !c.pve) {
-        p.send({ t: 'combat', round: this.round, mySide: 1, opponentName: c.a.name, pve: false, result: c.result, elapsed });
+        p.send({ t: 'combat', round: this.round, mySide: 1, opponentName: c.a.name, opponentId: c.a.id, pve: false, result: c.result, elapsed, home: c.home ?? 0, dmg: this.combatDamage(c.result, false) });
         return;
       }
     }
@@ -186,7 +193,7 @@ export class Room {
   broadcastLobby() {
     const msg: ServerMsg = {
       t: 'lobby', room: this.code, hostId: this.hostId,
-      players: this.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, connected: p.connected })),
+      players: this.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, connected: p.connected, avatar: p.avatar })),
     };
     for (const p of this.players) p.send(msg);
   }
@@ -207,7 +214,9 @@ export class Room {
           const used = new Set(this.players.map((x) => x.name));
           const free = BOT_NAMES.filter((n) => !used.has(`🤖 ${n}`));
           const name = free[Math.floor(Math.random() * free.length)] ?? `Bot ${this.playerCounter}`;
-          this.players.push(new Player(`p${this.playerCounter++}`, '', `🤖 ${name}`, true));
+          const bot = new Player(`p${this.playerCounter++}`, '', `🤖 ${name}`, true);
+          bot.avatar = `${pick(['nuvem', 'cogumelo', 'robozinho', 'geleca'])}:${Math.floor(Math.random() * 8)}`;
+          this.players.push(bot);
         }
         this.broadcastLobby();
         return;
@@ -252,6 +261,14 @@ export class Room {
         for (const x of this.players) x.send({ t: 'emote', from: p.id, e });
         return;
       }
+    }
+    if (msg.t === 'vote') { this.vote(p, Number(msg.i)); return; }
+    if (msg.t === 'avatar') {
+      const look = String(msg.look ?? '');
+      if (!/^[a-z]{3,12}:\d$/.test(look) || look === p.avatar) return;
+      p.avatar = look;
+      if (this.phase === 'lobby') this.broadcastLobby(); else this.broadcastState();
+      return;
     }
     if (msg.t === 'walk') { if (this.phase === 'carousel' && p.alive) this.walk(p, Number(msg.x), Number(msg.z)); return; }
     if (this.phase !== 'planning' && this.phase !== 'combat') return;
@@ -413,8 +430,8 @@ export class Room {
       other.loc = tmp;
       return true;
     }
-    if (to.zone === 'board' && u.loc.zone === 'bench' && p.boardUnits().length >= p.level) {
-      this.toast(p, `Limite de ${p.level} robôs no tabuleiro. Suba de nível!`);
+    if (to.zone === 'board' && u.loc.zone === 'bench' && p.boardUnits().length >= p.cap()) {
+      this.toast(p, `Limite de ${p.cap()} robôs no tabuleiro. Suba de nível!`);
       return false;
     }
     u.loc = to;
@@ -429,11 +446,16 @@ export class Room {
     if (this.phase === 'combat' && u.loc.zone === 'board') { this.toast(p, 'Espera o combate acabar pra equipar quem está lutando.'); return false; }
     if (isSpecial(item)) return this.useSpecial(p, index, u);
     if (u.items.includes('maoleve')) { this.toast(p, 'A Mão Leve já ocupa todos os espaços.'); return false; }
+    const traitsOf = UNITS[u.defId].traits;
+    if (isEmblem(item) && !emblemAllowed(traitsOf, u.items, item)) { this.toast(p, `${UNITS[u.defId].name} já tem essa sinergia.`); return false; }
+    if (item === 'chapeucuca' && u.items.includes('chapeucuca')) { this.toast(p, 'Um chapéu por robô, chef.'); return false; }
     if (isComponent(item)) {
       const ci = u.items.findIndex((x) => isComponent(x));
       if (ci >= 0) {
         const made = combine(u.items[ci], item)!;
         if (made === 'maoleve' && u.items.length > 1) { this.toast(p, 'A Mão Leve precisa de um robô sem outros itens.'); return false; }
+        if (isEmblem(made) && !emblemAllowed(traitsOf, u.items.filter((_, k) => k !== ci), made)) { this.toast(p, `Isso viraria ${ITEMS[made].name}, mas ${UNITS[u.defId].name} já tem essa sinergia.`); return false; }
+        if (made === 'chapeucuca' && u.items.includes('chapeucuca')) { this.toast(p, 'Um chapéu por robô, chef.'); return false; }
         u.items[ci] = made;
         p.itemBench.splice(index, 1);
         this.toast(p, `${ITEMS[made].icon} ${ITEMS[made].name} montado!`, 'good');
@@ -465,6 +487,8 @@ export class Room {
     if (item === 'reforjador') {
       p.itemBench.splice(index, 1);
       u.items = u.items.map((it) => {
+        if (it === 'chapeucuca') return it;
+        if (isEmblem(it)) return pick(EMBLEMS.filter((e) => e !== it && emblemAllowed(UNITS[u.defId].traits, [], e)));
         if (isComponent(it)) return pick(COMPONENTS.filter((c) => c !== it));
         return pick(COMPLETED.filter((c) => c !== it && c !== 'maoleve'));
       });
@@ -526,8 +550,9 @@ export class Room {
     if (p.freeRerolls > 0) {
       p.freeRerolls--;
     } else {
-      if (p.gold < REROLL_COST) { this.toast(p, 'Sem grana pra rolar.'); return false; }
-      p.gold -= REROLL_COST;
+      const cost = rerollCost(this.portal);
+      if (p.gold < cost) { this.toast(p, 'Sem grana pra rolar.'); return false; }
+      p.gold -= cost;
     }
     this.rollShop(p);
     return true;
@@ -537,7 +562,7 @@ export class Room {
     if (p.level >= MAX_LEVEL) return false;
     if (p.gold < XP_COST) { this.toast(p, 'Sem grana pra XP.'); return false; }
     p.gold -= XP_COST;
-    p.addXp(XP_PER_BUY);
+    p.addXp(XP_PER_BUY + (this.portal === 'pilotagem' ? 2 : 0));
     return true;
   }
 
@@ -559,10 +584,12 @@ export class Room {
     const stage = stageOf(this.round).stage;
     if (stage <= 3) {
       const opts = [...COMPONENTS].sort(() => Math.random() - 0.5).slice(0, 3);
+      if (stage >= 2 && Math.random() < 0.15) opts[2] = 'colher';
       return { kind: 'armory', title: 'Arsenal: escolha um componente', options: opts };
     }
     const opts = COMPLETED.filter((i) => i !== 'maoleve').sort(() => Math.random() - 0.5).slice(0, 3);
     if (Math.random() < 0.35) opts[2] = randomSpecial();
+    else if (Math.random() < 0.2) opts[2] = randomEmblem();
     return { kind: 'armory', title: 'Arsenal: escolha um item completo', options: opts };
   }
 
@@ -587,7 +614,72 @@ export class Room {
       });
     }
     this.round = 0;
-    this.startCarousel(true);
+    this.portal = null;
+    this.startPortalVote();
+  }
+
+  // ================= portal (regra da partida) =================
+
+  startPortalVote() {
+    const options = [...PORTAL_IDS].sort(() => Math.random() - 0.5).slice(0, 3);
+    const dur = 15000;
+    this.portalVote = { options, votes: new Map(), end: Date.now() + dur };
+    this.phase = 'portal';
+    this.endsAt = Date.now() + dur;
+    this.phaseTotal = dur;
+    this.setTimer(dur, () => this.finishPortal());
+    this.broadcastState();
+    this.broadcastPortal();
+    // bots votam com um pouquinho de atraso
+    for (const p of this.players) {
+      if (!p.isBot) continue;
+      setTimeout(() => this.vote(p, Math.floor(Math.random() * options.length)), 1500 + Math.random() * 6000);
+    }
+  }
+
+  broadcastPortal(chosen: string | null = null) {
+    const v = this.portalVote;
+    if (!v) return;
+    const msg: ServerMsg = { t: 'portal', options: v.options, votes: Object.fromEntries(v.votes), endsIn: Math.max(0, v.end - Date.now()), chosen };
+    for (const p of this.players) p.send(msg);
+  }
+
+  vote(p: Player, i: number) {
+    const v = this.portalVote;
+    if (!v || this.phase !== 'portal' || !(i >= 0 && i < v.options.length)) return;
+    v.votes.set(p.id, Math.floor(i));
+    this.broadcastPortal();
+    if (this.players.every((x) => v.votes.has(x.id) || (!x.isBot && !x.connected))) {
+      v.end = Math.min(v.end, Date.now() + 1500);
+      this.endsAt = v.end;
+      this.setTimer(1500, () => this.finishPortal());
+      this.broadcastState();
+    }
+  }
+
+  /** Apura os votos (empate: sorteio) e começa o carrossel inicial. */
+  finishPortal(immediate = false) {
+    const v = this.portalVote;
+    if (!v || this.phase !== 'portal') return;
+    const count = v.options.map((_, i) => [...v.votes.values()].filter((x) => x === i).length);
+    const top = Math.max(...count);
+    const best = v.options.filter((_, i) => count[i] === top);
+    this.portal = best[Math.floor(Math.random() * best.length)];
+    const def = PORTALS[this.portal];
+    for (const p of this.players) {
+      if (this.portal === 'kit') p.giveItems([randomComponent(), randomComponent()]);
+      if (this.portal === 'colheres') p.giveItems(['colher']);
+      this.toast(p, `${def.icon} Portal da partida: ${def.name} — ${def.desc}`, 'good');
+    }
+    this.broadcastPortal(this.portal);
+    this.portalVote = null;
+    if (immediate) this.startCarousel(true);
+    else {
+      this.endsAt = Date.now() + 2500;
+      this.phaseTotal = 2500;
+      this.broadcastState();
+      this.setTimer(2500, () => this.startCarousel(true));
+    }
   }
 
   isPve(round: number) { return isPveRound(round); }
@@ -608,7 +700,7 @@ export class Room {
 
   /** Próxima etapa depois do combate: carrossel (se for a hora) ou planejamento. */
   nextRound() {
-    if (isCarouselRound(this.round + 1)) this.startCarousel(false);
+    if (isCarouselRound(this.round + 1, this.portal)) this.startCarousel(false);
     else this.startPlanning();
   }
 
@@ -623,7 +715,9 @@ export class Room {
       const def = opts.length ? pick(opts) : pick(SHOP_UNITS.filter((d) => d.cost === cost));
       used.add(def.id);
       this.takeFromPool(def.id);
-      const item = initial || stage <= 3 ? randomComponent() : Math.random() < 0.12 ? randomSpecial() : randomCompleted();
+      const item = initial ? randomComponent()
+        : stage <= 3 ? (Math.random() < 0.08 ? 'colher' : randomComponent())
+        : Math.random() < 0.12 ? randomSpecial() : Math.random() < 0.1 ? randomEmblem() : randomCompleted();
       units.push({ defId: def.id, item, taken: null });
     }
     const now = Date.now();
@@ -671,7 +765,7 @@ export class Room {
 
   botCarouselChoice(p: Player): number {
     const car = this.carousel!;
-    const traits = computeTraits(p.boardUnits().map((u) => u.defId), traitBonus(p.augments));
+    const traits = computeTraits(p.boardUnits().map((u) => u.defId), mergeBonus(traitBonus(p.augments), emblemBonus(p.boardUnits())));
     let best = -1, bs = -Infinity;
     car.units.forEach((cu, i) => {
       if (cu.taken) return;
@@ -775,11 +869,12 @@ export class Room {
       p.opponentId = null;
       // renda (igual TFT): base + juros + sequência
       const base = this.round === 1 ? 2 : this.round === 2 ? 2 : this.round === 3 ? 3 : this.round === 4 ? 4 : 5;
-      const cap = p.hasAug('juroscomp') ? 7 : 5;
+      const cap = interestCap(this.portal, p.hasAug('juroscomp'));
       const interest = this.round === 1 ? 0 : Math.min(cap, Math.floor(p.gold / 10));
       const s = Math.abs(p.streak);
       const streakBonus = s >= 6 ? 3 : s >= 5 ? 2 : s >= 3 ? 1 : 0;
-      p.gold += base + interest + (this.isPve(this.round - 1) ? 0 : streakBonus);
+      p.gold += base + interest + (this.isPve(this.round - 1) ? 0 : streakBonus) + (this.portal === 'chuva' ? 1 : 0);
+      if (this.portal === 'colheres' && label === '3-1') { p.giveItems(['colher']); if (!p.isBot) this.toast(p, '🥄 Chuva de Colheres: mais uma Colher de Pau!', 'good'); }
       p.addXp(2 + (p.hasAug('xpturbo') ? 2 : 0));
       p.freeRerolls = p.hasAug('rolagratis') ? 1 : 0;
       if (!p.locked || p.shop.length === 0) this.rollShop(p);
@@ -812,7 +907,7 @@ export class Room {
   }
 
   autoFill(p: Player) {
-    while (p.boardUnits().length < p.level && p.benchUnits().length > 0) {
+    while (p.boardUnits().length < p.cap() && p.benchUnits().length > 0) {
       const u = p.benchUnits().sort((a, b) => UNITS[b.defId].cost * b.star - UNITS[a.defId].cost * a.star)[0];
       const melee = UNITS[u.defId].range <= 1;
       const rows = melee ? [0, 1, 2, 3] : [3, 2, 1, 0];
@@ -826,7 +921,7 @@ export class Room {
       }
       if (!placed) break;
     }
-    while (p.boardUnits().length > p.level) {
+    while (p.boardUnits().length > p.cap()) {
       const u = p.boardUnits()[p.boardUnits().length - 1];
       const s = p.freeBenchSlot();
       if (s < 0) break;
@@ -898,21 +993,24 @@ export class Room {
         this.pendingCombats.push({ a: p, b: null, ghost: false, result, pve: true });
         maxDur = Math.max(maxDur, result.duration);
         p.opponentId = null;
-        p.send({ t: 'combat', round: this.round, mySide: 0, opponentName: 'Drones da Patrulha', pve: true, result });
+        p.send({ t: 'combat', round: this.round, mySide: 0, opponentName: 'Drones da Patrulha', pve: true, result, home: 0, dmg: this.combatDamage(result, true) });
       }
     } else {
       for (const pair of this.makePairs()) {
         const b = pair.b!;
         const result = simulate(this.sideOf(pair.a), this.sideOf(b), Math.floor(Math.random() * 1e9));
-        this.pendingCombats.push({ a: pair.a, b, ghost: pair.ghost, result, pve: false });
+        // casa/fora: um dos dois viaja até o tabuleiro do outro (fantasma sempre joga fora)
+        const home: 0 | 1 = pair.ghost ? 0 : Math.random() < 0.5 ? 0 : 1;
+        const dmg = this.combatDamage(result, false);
+        this.pendingCombats.push({ a: pair.a, b, ghost: pair.ghost, result, pve: false, home });
         maxDur = Math.max(maxDur, result.duration);
         pair.a.opponentId = b.id;
         pair.a.lastOpp = b.id;
-        pair.a.send({ t: 'combat', round: this.round, mySide: 0, opponentName: pair.ghost ? `${b.name} (fantasma)` : b.name, pve: false, result });
+        pair.a.send({ t: 'combat', round: this.round, mySide: 0, opponentName: pair.ghost ? `${b.name} (fantasma)` : b.name, opponentId: b.id, pve: false, result, home, dmg });
         if (!pair.ghost) {
           b.opponentId = pair.a.id;
           b.lastOpp = pair.a.id;
-          b.send({ t: 'combat', round: this.round, mySide: 1, opponentName: pair.a.name, pve: false, result });
+          b.send({ t: 'combat', round: this.round, mySide: 1, opponentName: pair.a.name, opponentId: pair.a.id, pve: false, result, home, dmg });
         }
       }
     }
@@ -939,6 +1037,8 @@ export class Room {
       if (won && Math.random() < 0.5) loot.push(randomComponent());
     }
     if (stage >= 3 && Math.random() < 0.2) loot.push(randomSpecial());
+    if (stage >= 2 && Math.random() < 0.1) loot.push('colher');
+    if (this.portal === 'drones') loot.push(randomComponent());
     p.gold += killed;
     p.giveItems(loot);
     p.send({ t: 'loot', items: loot, gold: killed });
@@ -949,7 +1049,7 @@ export class Room {
 
   /** Muambeiros: depois de cada combate contra jogador, chance de trazer muamba (mais se perdeu). */
   muamba(p: Player, won: boolean) {
-    const traits = computeTraits(p.boardUnits().map((u) => u.defId), traitBonus(p.augments));
+    const traits = computeTraits(p.boardUnits().map((u) => u.defId), mergeBonus(traitBonus(p.augments), emblemBonus(p.boardUnits())));
     const tr = traits.find((x) => x.id === 'muambeiro');
     if (!tr || tr.tier < 0) return;
     const chance = TRAITS.muambeiro.values[tr.tier] / 100 + (won ? 0 : 0.15);
@@ -963,16 +1063,24 @@ export class Room {
     if (!p.isBot) this.toast(p, `💰 Muamba: +${gold} de ouro${loot.map((i) => ` · ${ITEMS[i].icon} ${ITEMS[i].name}`).join('')}`, 'good');
   }
 
-  endCombat() {
+  /** Dano que o perdedor leva (igual para o aviso no começo do combate e o fim). */
+  combatDamage(res: CombatResult, pve: boolean) {
     const base = stageDamage(this.round);
+    const dmgFrom = (side: 0 | 1) =>
+      base + res.survivors.filter((s) => s.side === side).reduce((s, x) => s + survivorDamage(x.star, x.cost), 0);
+    const k = this.portal === 'colchao' ? 0.75 : 1;
+    if (pve) return res.winner === 0 ? 0 : Math.max(1, Math.ceil((dmgFrom(1) / 2) * k));
+    return Math.max(1, Math.ceil((res.winner === -1 ? base : dmgFrom(res.winner)) * k));
+  }
+
+  endCombat() {
     for (const c of this.pendingCombats) {
       const res = c.result;
-      const dmgFrom = (side: 0 | 1) =>
-        base + res.survivors.filter((s) => s.side === side).reduce((s, x) => s + survivorDamage(x.star, x.cost), 0);
+      const dmg = this.combatDamage(res, c.pve);
       if (c.pve) {
         const killed = res.units.filter((u) => u.side === 1).length - res.survivors.filter((s) => s.side === 1).length;
         this.pveLoot(c.a, res.winner === 0, killed);
-        if (res.winner !== 0) c.a.hp -= Math.max(1, Math.ceil(dmgFrom(1) / 2));
+        if (res.winner !== 0) c.a.hp -= dmg;
         continue;
       }
       const b = c.b!;
@@ -980,13 +1088,13 @@ export class Room {
       if (!c.ghost) this.muamba(b, res.winner === 1);
       if (res.winner === 0) {
         this.win(c.a);
-        if (!c.ghost) this.lose(b, dmgFrom(0));
+        if (!c.ghost) this.lose(b, dmg);
       } else if (res.winner === 1) {
-        this.lose(c.a, dmgFrom(1));
+        this.lose(c.a, dmg);
         if (!c.ghost) this.win(b);
       } else {
-        this.lose(c.a, base);
-        if (!c.ghost) this.lose(b, base);
+        this.lose(c.a, dmg);
+        if (!c.ghost) this.lose(b, dmg);
       }
     }
     this.pendingCombats = [];
@@ -1032,7 +1140,7 @@ export class Room {
   publicPlayers(): PublicPlayer[] {
     return this.players.map((p) => ({
       id: p.id, name: p.name, hp: p.hp, level: p.level, alive: p.alive, isBot: p.isBot,
-      connected: p.connected, streak: p.streak, place: p.place, gold: p.gold, augments: p.augments,
+      connected: p.connected, streak: p.streak, place: p.place, gold: p.gold, augments: p.augments, avatar: p.avatar,
       board: p.boardUnits().map((u) => ({ defId: u.defId, star: u.star, items: u.items, r: (u.loc as { r: number }).r, c: (u.loc as { c: number }).c })),
     }));
   }
@@ -1041,7 +1149,7 @@ export class Room {
     if (p.isBot) return;
     p.send({
       t: 'state', phase: this.phase, round: this.round, endsIn: Math.max(0, this.endsAt - Date.now()),
-      phaseTotal: this.phaseTotal,
+      phaseTotal: this.phaseTotal, portal: this.portal,
       pve: this.isPve(this.round), hostId: this.hostId, players: pub, opponentId: p.opponentId,
       me: {
         gold: p.gold, level: p.level, xp: p.xp, xpNeeded: p.xpNeeded(), shop: p.shop, units: p.units,
