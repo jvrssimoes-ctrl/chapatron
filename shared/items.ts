@@ -114,8 +114,8 @@ export function emblemAllowed(unitTraits: TraitId[], items: string[], emblemId: 
 }
 
 /** Limite de robôs no tabuleiro (nível + Chapéu de Mestre-Cuca em campo). */
-export function boardCap(level: number, units: { items: string[]; loc: { zone: string } }[]) {
-  return level + (units.some((u) => u.loc.zone === 'board' && u.items.includes('chapeucuca')) ? 1 : 0);
+export function boardCap(level: number, units: { items: string[]; loc: { zone: string } }[], augments: string[] = []) {
+  return level + (units.some((u) => u.loc.zone === 'board' && u.items.includes('chapeucuca')) ? 1 : 0) + (augments.includes('exercito') ? 1 : 0);
 }
 
 // ======================= ITENS ESPECIAIS (consumíveis) =======================

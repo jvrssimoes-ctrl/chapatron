@@ -493,6 +493,21 @@ export const START_HP = 100;
 export const HP_STAR_MULT = [1, 1.8, 3.24];
 export const AD_STAR_MULT = [1, 1.5, 2.25];
 export const MAX_ITEMS = 3;
+
+/**
+ * Poder extra do ★★★ por custo (igual TFT: 4 custo ★★★ é um monstro, 5 custo ★★★ ganha a luta sozinho).
+ * hp/ad multiplicam por cima do HP_STAR_MULT/AD_STAR_MULT; dmg = dano causado extra; as = vel. de ataque extra;
+ * mana = mana inicial extra (fração da máxima); manaCost = multiplicador da mana máxima; cc = imune a controle.
+ */
+export interface Star3Power { hp: number; ad: number; dmg: number; as: number; mana: number; manaCost: number; cc: boolean; reduce: number; label: string }
+export const STAR3_POWER: Record<number, Star3Power> = {
+  1: { hp: 1, ad: 1, dmg: 0, as: 0, mana: 0, manaCost: 1, cc: false, reduce: 0, label: '' },
+  2: { hp: 1, ad: 1, dmg: 0, as: 0, mana: 0, manaCost: 1, cc: false, reduce: 0, label: '' },
+  3: { hp: 1.1, ad: 1.1, dmg: 0.1, as: 0, mana: 0, manaCost: 1, cc: false, reduce: 0, label: '' },
+  4: { hp: 2, ad: 1.6, dmg: 1.1, as: 0.3, mana: 0.5, manaCost: 0.8, cc: false, reduce: 0.25, label: 'MONSTRO DA BRISA' },
+  5: { hp: 3, ad: 3, dmg: 3.5, as: 0.6, mana: 1, manaCost: 0.6, cc: true, reduce: 0.4, label: 'DIVINDADE CHAPADA' },
+};
+export const star3Power = (cost: number, star: number): Star3Power | null => (star >= 3 ? STAR3_POWER[cost] ?? null : null);
 export const BASE_CRIT = 25; // %
 export const BASE_CRIT_DMG = 40; // % extra (140%)
 
@@ -538,7 +553,7 @@ export function isCarouselRound(round: number, portal?: string | null) {
 export const STAGE_DAMAGE: Record<number, number> = { 1: 0, 2: 2, 3: 4, 4: 6, 5: 9, 6: 12, 7: 16 };
 /** Dano extra por robô sobrevivente do vencedor. */
 export function survivorDamage(star: number, cost: number) {
-  return star + (cost >= 4 ? 1 : 0);
+  return star + (cost >= 4 ? 1 : 0) + (star >= 3 && cost >= 4 ? cost - 2 : 0);
 }
 export function stageDamage(round: number) {
   const s = stageOf(round).stage;

@@ -6,6 +6,7 @@ import { traitImg } from './emblems';
 import { banner, esc } from './hud';
 import { robotPortrait } from './three/portrait';
 import { SKINS, setSkin, skin } from './skins';
+import { ARENAS, arena, setArena } from './arenas';
 import { sfx } from './sfx';
 import { store } from './store';
 
@@ -140,6 +141,8 @@ export function openProfile() {
     root.addEventListener('click', (e) => {
       const el = e.target as HTMLElement;
       if (el === root || el.closest('.gd-close')) { closeProfile(); return; }
+      const ar = el.closest('[data-arena]') as HTMLElement | null;
+      if (ar && !ar.classList.contains('locked')) { setArena(ar.dataset.arena!); sfx('equip'); render(); return; }
       const sk = el.closest('[data-skin]') as HTMLElement | null;
       if (sk && !sk.classList.contains('locked')) {
         prof.skin = sk.dataset.skin!;
@@ -183,7 +186,8 @@ function render() {
       <div class="pf-achs">${ACHIEVEMENTS.map((a) => {
         const on = !!prof.achievements[a.id];
         const sk = SKINS.find((s) => s.unlock === a.id);
-        return `<div class="pf-ach ${on ? 'on' : ''}"><span class="pf-ach-i">${on ? a.icon : '🔒'}</span><div><b>${esc(a.name)}</b><small>${esc(a.desc)}${sk ? ` <i>· libera skin ${esc(sk.name)}</i>` : ''}</small></div></div>`;
+        const ar = ARENAS.find((x) => x.unlock === a.id);
+        return `<div class="pf-ach ${on ? 'on' : ''}"><span class="pf-ach-i">${on ? a.icon : '🔒'}</span><div><b>${esc(a.name)}</b><small>${esc(a.desc)}${sk ? ` <i>· libera skin ${esc(sk.name)}</i>` : ''}${ar ? ` <i>· libera arena ${esc(ar.name)}</i>` : ''}</small></div></div>`;
       }).join('')}</div>
       <h4>Skin do tabuleiro</h4>
       <div class="pf-skins">${SKINS.map((s) => {
@@ -192,6 +196,15 @@ function render() {
         return `<button class="pf-skin ${locked ? 'locked' : ''} ${skin().id === s.id ? 'on' : ''}" data-skin="${s.id}" title="${locked ? `Conquista: ${esc(req?.name ?? '')}` : esc(s.name)}">
           <div class="pf-swatch">${[s.enemy[0], s.enemy[1], s.enemy[0], s.mine[1], s.mine[0], s.mine[1]].map((c) => `<i style="background:${c}"></i>`).join('')}<em style="background:${s.neon}"></em></div>
           <span>${locked ? '🔒 ' : ''}${esc(s.name)}</span></button>`;
+      }).join('')}</div>
+      <h4>Arena</h4>
+      <div class="pf-arenas">${ARENAS.map((a) => {
+        const locked = !!a.unlock && !prof.achievements[a.unlock];
+        const req = ACHIEVEMENTS.find((x) => x.id === a.unlock);
+        return `<button class="pf-arena ${locked ? 'locked' : ''} ${arena().id === a.id ? 'on' : ''}" data-arena="${a.id}" title="${locked ? `Conquista: ${esc(req?.name ?? '')}` : esc(a.name)}"
+          style="--s1:${a.sky.hor};--s2:${a.sky.mid};--s3:${a.sky.top};--gr:${a.ground};--l1:${a.lights[0]};--l2:${a.lights[1]}">
+          <div class="pf-arena-pv"><i></i><b>${a.icon}</b></div>
+          <span>${locked ? '🔒 ' : ''}${esc(a.name)}</span>${locked && req ? `<small>${esc(req.name)}</small>` : ''}</button>`;
       }).join('')}</div>
       <h4>Últimas partidas</h4>
       ${prof.history.length ? `<div class="pf-hist">${prof.history.map((h) => `<div class="pf-game p${Math.min(h.place, 5)}">

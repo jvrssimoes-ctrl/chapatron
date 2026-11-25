@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { addRim, glowTexture, noiseTexture } from './env';
 import { buildLeaf } from './models';
+import type { Arena } from '../arenas';
 
 // Cenário: céu com nebulosa, ilha flutuante, grama ao vento, cogumelos gigantes,
 // pés de "erva", cristais, torres-bong, vagalumes e névoa. Tudo procedural.
@@ -13,6 +14,7 @@ export interface WorldOpts {
 
 export interface World {
   update: (t: number, dt: number) => void;
+  setArena: (a: Arena) => void;
 }
 
 function rng(seed: number) {
@@ -38,13 +40,18 @@ export function buildWorld(scene: THREE.Scene, o: WorldOpts): World {
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    uniforms: { uTime: { value: 0 } },
+    uniforms: {
+      uTime: { value: 0 },
+      uTop: { value: new THREE.Color(0.035, 0.015, 0.09) }, uMid: { value: new THREE.Color(0.16, 0.05, 0.26) }, uHor: { value: new THREE.Color(0.10, 0.32, 0.30) },
+      uNebA: { value: new THREE.Color(0.55, 0.12, 0.65) }, uNebB: { value: new THREE.Color(0.1, 0.75, 0.45) },
+    },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
       void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: /* glsl */ `
       varying vec3 vDir;
       uniform float uTime;
+      uniform vec3 uTop, uMid, uHor, uNebA, uNebB;
       float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
       float noise(vec3 p) {
         vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -55,15 +62,15 @@ export function buildWorld(scene: THREE.Scene, o: WorldOpts): World {
       void main() {
         vec3 d = normalize(vDir);
         float h = d.y;
-        vec3 top = vec3(0.035, 0.015, 0.09);
-        vec3 mid = vec3(0.16, 0.05, 0.26);
-        vec3 hor = vec3(0.10, 0.32, 0.30);
+        vec3 top = uTop;
+        vec3 mid = uMid;
+        vec3 hor = uHor;
         vec3 col = mix(hor, mid, smoothstep(-0.15, 0.25, h));
         col = mix(col, top, smoothstep(0.25, 0.9, h));
         // nebulosa
         float n = fbm(d * 2.4 + vec3(uTime * 0.004, 0.0, 0.0));
         float n2 = fbm(d * 4.5 - vec3(0.0, uTime * 0.003, 0.0));
-        vec3 neb = mix(vec3(0.55, 0.12, 0.65), vec3(0.1, 0.75, 0.45), n2);
+        vec3 neb = mix(uNebA, uNebB, n2);
         col += neb * pow(smoothstep(0.45, 0.85, n), 2.0) * 0.55 * smoothstep(-0.1, 0.3, h);
         // estrelas
         vec3 sp = d * 220.0;
@@ -116,7 +123,8 @@ export function buildWorld(scene: THREE.Scene, o: WorldOpts): World {
       pos.setXY(i, x * f, y * f * 0.92);
     }
   }
-  const ground = new THREE.Mesh(topGeo, new THREE.MeshStandardMaterial({ color: '#3d8f4a', map: grassTex, roughness: 0.95 }));
+  const groundMat = new THREE.MeshStandardMaterial({ color: '#3d8f4a', map: grassTex, roughness: 0.95 });
+  const ground = new THREE.Mesh(topGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, -0.6, 0.8);
   ground.receiveShadow = true;
@@ -401,16 +409,20 @@ export function buildWorld(scene: THREE.Scene, o: WorldOpts): World {
   fGeo.setAttribute('aCol', new THREE.BufferAttribute(fCol, 3));
   const fMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uT: { value: 0 }, uTex: { value: glowTexture() }, uScale: { value: 1 } },
+    uniforms: { uT: { value: 0 }, uTex: { value: glowTexture() }, uScale: { value: 1 }, uRise: { value: 0 }, uSize: { value: 1 },
+      uC0: { value: new THREE.Color('#c8ff6a') }, uC1: { value: new THREE.Color('#ffd86a') }, uC2: { value: new THREE.Color('#7affe8') } },
     vertexShader: /* glsl */ `
-      attribute float aSeed; attribute vec3 aCol; uniform float uT; uniform float uScale; varying vec3 vC; varying float vA;
+      attribute float aSeed; attribute vec3 aCol; uniform float uT; uniform float uScale; uniform float uRise; uniform float uSize;
+      uniform vec3 uC0, uC1, uC2; varying vec3 vC; varying float vA;
       void main(){
         vec3 p = position;
+        if (uRise != 0.0) p.y = mod(position.y + uT * uRise + aSeed, 7.5) - 0.6;
         p.x += sin(uT * 0.3 + aSeed) * 1.2; p.y += sin(uT * 0.7 + aSeed * 1.7) * 0.6; p.z += cos(uT * 0.25 + aSeed * 0.5) * 1.2;
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         vA = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(uT * 2.2 + aSeed * 3.0), 3.0);
-        vC = aCol;
-        gl_PointSize = uScale * 26.0 / -mv.z;
+        float k = fract(aSeed * 7.31);
+        vC = k < 0.55 ? uC0 : k < 0.8 ? uC1 : uC2;
+        gl_PointSize = uScale * uSize * 26.0 / -mv.z;
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */ `
@@ -423,5 +435,16 @@ export function buildWorld(scene: THREE.Scene, o: WorldOpts): World {
 
   return {
     update: (t, dt) => { for (const u of updaters) u(t, dt); },
+    setArena: (a) => {
+      // shaders crus (sem conversão de cor): usa o valor sRGB direto
+      const raw = (c: THREE.Color, hex: string) => c.set(hex).convertLinearToSRGB();
+      const U = skyMat.uniforms;
+      raw(U.uTop.value, a.sky.top); raw(U.uMid.value, a.sky.mid); raw(U.uHor.value, a.sky.hor);
+      raw(U.uNebA.value, a.sky.nebA); raw(U.uNebB.value, a.sky.nebB);
+      groundMat.color.set(a.ground);
+      const F = fMat.uniforms;
+      F.uC0.value.set(a.motes.colors[0]); F.uC1.value.set(a.motes.colors[1]); F.uC2.value.set(a.motes.colors[2]);
+      F.uRise.value = a.motes.rise; F.uSize.value = a.motes.size;
+    },
   };
 }

@@ -259,6 +259,8 @@ const AUG_BASE: Record<string, [number, number, number]> = {
   artilharia: [5.5, 6.5, 7.5], manainf: [5, 6, 6.5], laricacol: [5.5, 6, 6.5],
   reciclagem: [4.5, 4.5, 4], pazinterior: [5, 6, 6.5], vampiro: [5.5, 6.5, 7], presente: [7, 8.5, 9],
   fortuna: [8.5, 8, 6.5], caixamist: [9, 9, 8.5], brisalend: [8, 9, 10], ascensao: [8, 8, 6.5],
+  blindagem: [5, 6, 6.5], kitbasico: [5.5, 5, 4], pancadaria: [5.5, 6.5, 7], colherada: [6.5, 6.5, 6],
+  exercito: [9, 9.5, 9.5], colherdourada: [8, 8.5, 8.5],
 };
 
 function compKind(p: Player): 'ad' | 'ap' {

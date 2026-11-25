@@ -1,11 +1,12 @@
 import {
   AD_STAR_MULT, BASE_CRIT, COST_COLORS, HP_STAR_MULT, MAX_LEVEL, REROLL_COST, ROLES, SHOP_ODDS, TRAITS, UNITS, XP_COST,
-  abilityText, isPveRound, stageLabel, traitText,
+  abilityText, isCarouselRound, star3Power, isPveRound, stageLabel, traitText,
 } from '../../shared/data';
 import { AUGMENTS, TIER_COLOR, TIER_NAME, traitBonus } from '../../shared/augments';
 import { ALL_COMPONENTS, ITEMS, boardCap, combine, statsText } from '../../shared/items';
 import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../../shared/traits';
 import { PORTALS, interestCap, rerollCost } from '../../shared/portals';
+import { recommendedItems, rolesForItem } from '../../shared/recommend';
 import type { TraitId } from '../../shared/types';
 import type { HoverInfo } from './three/scene';
 import { net } from './net';
@@ -16,7 +17,7 @@ function augImg(id: string, cls = 'ai') {
   const a = AUGMENTS[id];
   if (!a) return '';
   const t = a.trait ? TRAITS[a.trait] : undefined;
-  const url = augIcon(id, { tier: a.tier, trait: a.trait, traitColor: t?.color, bonus: a.traitBonus });
+  const url = augIcon(id, { tier: a.tier, trait: a.trait, traitColor: t?.color, bonus: a.traitBonus, emoji: a.icon });
   return `<img class="${cls}" src="${url}" alt="" draggable="false">`;
 }
 import { robotPortrait } from './three/portrait';
@@ -33,7 +34,7 @@ let lastPlayersKey = '';
 let lastLevel = 0;
 let lastBenchKey = '';
 
-/** Bolinhas das rodadas do estágio atual (⚔ PvP, 🤖 PvE, 🎁 arsenal, ✨ aprimoramento). */
+/** Bolinhas das rodadas do estágio atual (⚔ PvP, 🤖 PvE, 🎠 carrossel, 🎁 arsenal, ✨ aprimoramento). */
 function stageDots(round: number) {
   const label = stageLabel(round);
   const [stage, sub] = label.split('-').map(Number);
@@ -46,7 +47,8 @@ function stageDots(round: number) {
     const sb = Number(l.split('-')[1]);
     let icon = isPveRound(r) ? '🤖' : '⚔️';
     if (l === '2-1' || l === '3-2' || l === '4-2') icon = '✨';
-    else if (stage >= 2 && sb === 4) icon = '🎁';
+    else if (isCarouselRound(r, store.state?.portal)) icon = '🎠';
+    else if (stage >= 2 && sb === 5) icon = '🎁';
     out.push(`<span class="${r < round ? 'past' : r === round ? 'cur' : ''}" title="${l}">${icon}</span>`);
   }
   return out.join('');
@@ -84,49 +86,99 @@ export function unitTipHtml(info: HoverInfo) {
   }
   const role = ROLES[def.role];
   const traits = unitTraits(def.id, items).map((t) => `<span class="tt-trait${def.traits.includes(t) ? '' : ' emb'}" style="color:${TRAITS[t].color}">${traitImg(t, TRAITS[t].color)} ${TRAITS[t].name}</span>`).join('');
-  const hpMax = Math.round(def.hp * HP_STAR_MULT[star - 1] + st.hp);
+  const p3 = star3Power(def.cost, info.star || 1);
+  const hpMax = Math.round((def.hp * HP_STAR_MULT[star - 1] + st.hp) * (p3?.hp ?? 1));
   const hp = info.hp !== undefined ? `${info.hp}/${info.maxHp}` : String(hpMax);
   const stars = info.star ? `<span class="tt-stars s${info.star}">${'★'.repeat(info.star)}</span>` : '';
-  const ad = Math.round(def.atk * AD_STAR_MULT[star - 1] * (1 + st.ad / 100));
-  const as = (def.as * (1 + st.as / 100)).toFixed(2);
+  const ad = Math.round(def.atk * AD_STAR_MULT[star - 1] * (p3?.ad ?? 1) * (1 + st.ad / 100));
+  const as = (def.as * (1 + st.as / 100 + (p3?.as ?? 0))).toFixed(2);
+  const maxMana = p3 ? Math.max(15, Math.round(def.mana * p3.manaCost)) : def.mana;
+  const p3Html = p3 && p3.label ? `<div class="tt-p3 c${def.cost}"><b>★★★ ${p3.label}</b><small>+${Math.round(p3.dmg * 100)}% de dano · ${Math.round(p3.reduce * 100)}% menos dano recebido · +${Math.round(p3.as * 100)}% VA${p3.mana >= 1 ? ' · começa com mana cheia' : p3.mana > 0 ? ` · +${Math.round(p3.mana * 100)}% mana inicial` : ''}${p3.cc ? ' · imune a controle · ataques explodem em volta do alvo · habilidades soltam onda divina' : ''}</small></div>` : '';
   const itemsHtml = items.length
-    ? `<div class="tt-items">${items.map((i) => `<span>${itemImg(i)} ${esc(ITEMS[i].name)}</span>`).join('')}</div>` : '';
+    ? `<div class="tt-sub">Itens equipados:</div><div class="tt-items">${items.map((i) => {
+      const s = statsText(ITEMS[i].stats);
+      return `<div class="tt-eq">${itemImg(i, 'ii')}<div><b>${esc(ITEMS[i].name)}</b>${s ? `<small class="cs">${s}</small>` : ''}${ITEMS[i].component ? '' : `<small>${esc(ITEMS[i].desc)}</small>`}</div></div>`;
+    }).join('')}</div>` : '';
   return `
     <div class="tt-head" style="border-color:${COST_COLORS[def.cost]}">
       <b>${esc(def.name)}</b> ${stars}<span class="tt-cost" style="background:${COST_COLORS[def.cost]}">${def.cost}💰</span>
     </div>
-    <div class="tt-role" style="color:${role.color}">${roleImg(def.role, role.color)} ${role.name} <small>${def.ability.scale === 'ad' ? '· habilidade escala com DA' : ''}</small></div>
+    ${p3Html}<div class="tt-role" style="color:${role.color}">${roleImg(def.role, role.color)} ${role.name} <small>${def.ability.scale === 'ad' ? '· habilidade escala com DA' : ''}</small></div>
     <div class="tt-traits">${traits}</div>
     <div class="tt-stats">
       <span title="Vida">❤️ ${hp}</span><span title="Dano de Ataque">⚔️ ${ad}</span><span title="Poder de Habilidade">✨ ${100 + st.ap}</span>
       <span title="Velocidade de Ataque">⚡ ${as}</span><span title="Alcance">🎯 ${def.range}</span><span title="Crítico">💥 ${BASE_CRIT + st.crit}%</span>
       <span title="Armadura">🛡️ ${def.armor + st.armor}</span><span title="Resistência Mágica">🔮 ${def.mr + st.mr}</span>
-      <span title="Mana">🔷 ${def.startMana + st.mana}/${def.mana}</span>
+      <span title="Mana">🔷 ${Math.min(maxMana, Math.round(def.startMana + st.mana + (p3 ? maxMana * p3.mana : 0)))}/${maxMana}</span>
     </div>
     <div class="tt-ab"><b>${esc(def.ability.name)}</b><br>${esc(abilityText(def, info.star || undefined))}</div>
-    ${itemsHtml}`;
+    ${itemsHtml}${items.length < 3 && !items.includes('maoleve') ? recommendHtml(def.id, items) : ''}`;
 }
+
+/** Componentes que tenho no banco de itens (contagem). */
+function myComponents() {
+  const n: Record<string, number> = {};
+  for (const id of store.state?.me.itemBench ?? []) if (id && ITEMS[id]?.component) n[id] = (n[id] ?? 0) + 1;
+  return n;
+}
+/** Dá para montar esse item com os componentes do banco? */
+function canBuild(itemId: string, have = myComponents()) {
+  const r = ITEMS[itemId]?.recipe;
+  if (!r) return false;
+  return r[0] === r[1] ? (have[r[0]] ?? 0) >= 2 : (have[r[0]] ?? 0) >= 1 && (have[r[1]] ?? 0) >= 1;
+}
+const recipeIcons = (id: string) => {
+  const r = ITEMS[id]?.recipe;
+  return r ? `<span class="tt-rc">${itemImg(r[0])}<i>+</i>${itemImg(r[1])}</span>` : '';
+};
 
 export function itemTipHtml(id: string) {
   const it = ITEMS[id];
   if (!it) return '';
-  let extra = '';
-  if (it.component) {
-    extra = `<div class="tt-recipes">${ALL_COMPONENTS.map((c) => {
-      const r = ITEMS[combine(id, c)!];
-      return `<div>${itemImg(c)}<span class="arr">›</span>${itemImg(r.id)} <b>${esc(r.name)}</b></div>`;
-    }).join('')}</div>`;
-  } else if (it.recipe) {
-    extra = `<div class="tt-recipe">Receita: ${itemImg(it.recipe[0])} ${esc(ITEMS[it.recipe[0]].name)} + ${itemImg(it.recipe[1])} ${esc(ITEMS[it.recipe[1]].name)}</div>`;
-  }
   if (it.special) {
     return `<div class="tt-head tt-item" style="border-color:#3dffb0">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>item especial</small></div>
     <div class="tt-ab">${esc(it.desc)}</div><div class="tt-hint">Some depois de usar.</div>`;
   }
-  return `<div class="tt-head tt-item" style="border-color:${it.component ? '#9aa3ad' : '#ffd23f'}">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>${it.component ? (id === 'colher' ? 'componente raro' : 'componente') : it.emblem ? 'emblema' : 'item completo'}</small></div>
-    <div class="tt-istats">${statsText(it.stats)}</div>
-    ${it.component ? '' : `<div class="tt-ab">${esc(it.desc)}</div>`}${extra}
-    <div class="tt-hint">${it.component ? 'Arraste até um robô. Dois componentes no mesmo robô viram um item completo.' : 'Arraste até um robô para equipar.'}</div>`;
+  const have = myComponents();
+  const kind = it.component ? (id === 'colher' ? 'componente raro' : 'componente') : it.emblem ? 'emblema' : 'item completo';
+  const head = `<div class="tt-head tt-item" style="border-color:${it.component ? '#9aa3ad' : it.emblem ? '#ff9de2' : '#ffd23f'}">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>${kind}</small></div>`;
+  if (it.component) {
+    const stats = statsText(it.stats);
+    const rows = ALL_COMPONENTS.map((c) => {
+      const r = ITEMS[combine(id, c)!];
+      const ready = c === id ? (have[c] ?? 0) >= 2 : (have[id] ?? 0) >= 1 && (have[c] ?? 0) >= 1;
+      const rs = statsText(r.stats);
+      return `<div class="tt-combo${ready ? ' ready' : ''}">
+        <span class="tt-rc">${itemImg(c)}<i>›</i>${itemImg(r.id)}</span>
+        <div><b>${esc(r.name)}</b>${ready ? '<em>✔ dá pra montar</em>' : ''}${rs ? `<small class="cs">${rs}</small>` : ''}<small>${esc(r.desc)}</small></div>
+      </div>`;
+    }).join('');
+    return `${head}
+      ${stats ? `<div class="tt-gives"><span>Dá ao robô:</span> ${stats}</div>` : `<div class="tt-ab">${esc(it.desc)}</div>`}
+      <div class="tt-sub">Combinações (+ outro componente):</div>
+      <div class="tt-combos">${rows}</div>
+      <div class="tt-hint">Arraste até um robô. Dois componentes no mesmo robô viram um item completo.</div>`;
+  }
+  const stats = statsText(it.stats);
+  const roles = it.emblem ? [] : rolesForItem(id);
+  const recipe = it.recipe
+    ? `<div class="tt-recipe">Receita: ${it.recipe.map((c) => `${itemImg(c)} ${esc(ITEMS[c].name)}`).join(' <i>+</i> ')}${canBuild(id, have) ? ' <em class="ok">✔ você tem</em>' : ''}</div>` : '';
+  return `${head}
+    <div class="tt-gives"><span>Dá ao robô:</span> ${stats || '<i>sem atributos</i>'}</div>
+    <div class="tt-ab">${it.emblem ? `${traitImg(it.emblem, TRAITS[it.emblem].color)} ` : ''}${esc(it.desc)}</div>
+    ${roles.length ? `<div class="tt-good">Bom em: ${roles.map((r) => `<span style="color:${ROLES[r].color}">${roleImg(r, ROLES[r].color)} ${ROLES[r].name}</span>`).join(' ')}</div>` : ''}
+    ${recipe}
+    <div class="tt-hint">Arraste até um robô para equipar.</div>`;
+}
+
+/** Bloco "Itens recomendados" para a dica do robô. */
+function recommendHtml(defId: string, items: string[]) {
+  if (UNITS[defId]?.pve) return '';
+  const recs = recommendedItems(defId, items, 3);
+  if (!recs.length) return '';
+  const have = myComponents();
+  return `<div class="tt-sub">Itens recomendados:</div><div class="tt-recs">${recs.map((r) =>
+    `<div class="tt-rec${canBuild(r, have) ? ' ready' : ''}">${itemImg(r, 'ii')}<b>${esc(ITEMS[r].name)}</b>${recipeIcons(r)}${canBuild(r, have) ? '<em>✔</em>' : ''}</div>`).join('')}</div>`;
 }
 
 export function augmentTipHtml(id: string) {
@@ -179,6 +231,7 @@ export function banner(html: string, kind: 'gold' | 'silver' | 'green' = 'gold',
   document.body.appendChild(el);
   setTimeout(() => el.classList.add('out'), ms);
   setTimeout(() => el.remove(), ms + 500);
+  return el;
 }
 
 export function chatLine(from: string, msg: string) {
@@ -266,6 +319,8 @@ function initItemsAndChoices(hooks: HudHooks) {
   $('choice').addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     if (t.closest('#choiceHide')) { choiceHidden = true; sfx('click'); renderChoice(); return; }
+    const rr = t.closest('.ch-reroll') as HTMLButtonElement | null;
+    if (rr) { if (!rr.disabled) { net.send({ t: 'rerollChoice', i: Number(rr.dataset.r) }); sfx('reroll'); } return; }
     const card = t.closest('.ch-card') as HTMLElement | null;
     if (!card) return;
     net.send({ t: 'choose', i: Number(card.dataset.i) });
@@ -275,31 +330,64 @@ function initItemsAndChoices(hooks: HudHooks) {
   $('choiceShow').onclick = () => { choiceHidden = false; sfx('click'); renderChoice(); };
 }
 
+/** Dica curta quando o aprimoramento combina com o time atual. */
+function augSuggest(id: string, boardIds: string[], augs: string[]): string {
+  const a = AUGMENTS[id];
+  if (!a) return '';
+  if (a.trait) {
+    const bonus = traitBonus(augs);
+    const uniq = [...new Set(boardIds)];
+    const before = computeTraits(uniq, bonus).find((t) => t.id === a.trait);
+    const after = computeTraits(uniq, { ...bonus, [a.trait]: (bonus[a.trait] ?? 0) + (a.traitBonus ?? 0) }).find((t) => t.id === a.trait);
+    if (after && after.tier > (before?.tier ?? -1)) return 'Ativa sinergia!';
+    if (before && before.count > 0) return 'Combina com seu time';
+    return '';
+  }
+  const ap = boardIds.filter((d) => UNITS[d]?.ability.scale === 'ap').length;
+  const ad = boardIds.length - ap;
+  if (ap > ad + 1 && (id === 'menteexp' || id === 'manainf')) return 'Bom p/ time de AP';
+  if (ad > ap + 1 && (id === 'furia' || id === 'golpecrit' || id === 'dedonervoso')) return 'Bom p/ time de DA';
+  const melee = boardIds.filter((d) => (UNITS[d]?.range ?? 9) <= 1).length;
+  if (id === 'pancadaria' && melee >= 4) return 'Muitos corpo a corpo';
+  return '';
+}
+
 let lastChoiceKey = '';
+let lastChoiceTitle = '';
 function renderChoice() {
   const ch = store.state?.me.choice ?? null;
   const box = $('choice');
   $('choiceShow').classList.toggle('hidden', !ch || !choiceHidden);
-  if (!ch) { box.classList.add('hidden'); lastChoiceKey = ''; choiceHidden = false; return; }
+  if (!ch) { box.classList.add('hidden'); lastChoiceKey = ''; lastChoiceTitle = ''; choiceHidden = false; return; }
   box.classList.toggle('hidden', choiceHidden);
   const key = JSON.stringify(ch);
   if (key === lastChoiceKey) return;
   lastChoiceKey = key;
+  const sameChoice = !!lastChoiceTitle && lastChoiceTitle === ch.title;
+  lastChoiceTitle = ch.title;
   choiceHidden = false;
   box.classList.remove('hidden');
   hideTip();
-  sfx('augment');
+  if (!sameChoice) sfx('augment');
+  const me = store.state!.me;
+  const boardIds = me.units.filter((u) => u.loc.zone === 'board').map((u) => u.defId);
   const cards = ch.options.map((id, i) => {
     if (ch.kind === 'augment') {
       const a = AUGMENTS[id];
-      return `<button class="ch-card aug-${a.tier}" data-i="${i}" style="--tier:${TIER_COLOR[a.tier]}">
+      const tag = augSuggest(id, boardIds, me.augments);
+      const rr = ch.rerolled ? !ch.rerolled[i] : false;
+      return `<div class="ch-slot"><button class="ch-card aug-${a.tier}${tag ? ' sug' : ''}" data-i="${i}" style="--tier:${TIER_COLOR[a.tier]}">
+        ${tag ? `<div class="ch-sug">⭐ ${esc(tag)}</div>` : ''}
         <div class="ch-icon">${augImg(id, 'ch-img')}</div><div class="ch-name">${esc(a.name)}</div>
-        <div class="ch-tier">${TIER_NAME[a.tier]}</div><div class="ch-desc">${esc(a.desc)}</div></button>`;
+        <div class="ch-tier">${TIER_NAME[a.tier]}</div><div class="ch-desc">${esc(a.desc)}</div></button>
+        ${ch.rerolled ? `<button class="ch-reroll btn small ghost" data-r="${i}" ${rr ? '' : 'disabled'} title="Troca esta opção por outra (1 vez)">🔄 ${rr ? 'Trocar' : 'Trocado'}</button>` : ''}</div>`;
     }
     const it = ITEMS[id];
-    return `<button class="ch-card ${it.component ? '' : 'aug-ouro'}" data-i="${i}" style="--tier:${it.component ? '#9aa3ad' : '#ffcf4a'}">
+    const fan = !it.component && !it.special ? [...new Set(boardIds)].find((d) => recommendedItems(d, [], 4).includes(id)) : undefined;
+    return `<div class="ch-slot"><button class="ch-card ${it.component ? '' : 'aug-ouro'}${fan ? ' sug' : ''}" data-i="${i}" style="--tier:${it.component ? '#9aa3ad' : '#ffcf4a'}">
+      ${fan ? `<div class="ch-sug">⭐ Bom p/ ${esc(UNITS[fan].name)}</div>` : ''}
       <div class="ch-icon">${itemImg(id, 'ch-img')}</div><div class="ch-name">${esc(it.name)}</div>
-      <div class="ch-tier">${statsText(it.stats)}</div><div class="ch-desc">${esc(it.component ? 'Componente básico.' : it.desc)}</div></button>`;
+      <div class="ch-tier">${statsText(it.stats)}</div><div class="ch-desc">${esc(it.component ? 'Componente básico.' : it.desc)}</div></button></div>`;
   }).join('');
   box.innerHTML = `<div class="ch-box"><h2>${esc(ch.title)}</h2><div class="ch-cards">${cards}</div>
     <button id="choiceHide" class="btn small ghost">👁 Ver tabuleiro</button></div>`;
@@ -446,7 +534,7 @@ export function renderHud() {
   $('xpFill').style.width = me.level >= MAX_LEVEL ? '100%' : `${(100 * me.xp) / Math.max(1, me.xpNeeded)}%`;
   const nBoard = me.units.filter((u) => u.loc.zone === 'board').length;
   const bc = $('boardCount');
-  const capN = boardCap(me.level, me.units);
+  const capN = boardCap(me.level, me.units, me.augments);
   bc.textContent = `🤖 Em campo ${nBoard}/${capN}`;
   bc.className = nBoard > capN ? 'over' : nBoard === capN ? 'full' : 'room';
   const odds = SHOP_ODDS[me.level] ?? [];

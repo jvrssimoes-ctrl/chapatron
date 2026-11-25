@@ -71,7 +71,7 @@ export class Player {
   benchUnits() { return this.units.filter((u) => u.loc.zone === 'bench'); }
   xpNeeded() { return this.level >= MAX_LEVEL ? 0 : XP_TO_LEVEL[this.level]; }
   hasAug(id: string) { return this.augments.includes(id); }
-  cap() { return boardCap(this.level, this.units); }
+  cap() { return boardCap(this.level, this.units, this.augments); }
   freeBenchSlot(): number {
     const used = new Set(this.benchUnits().map((u) => (u.loc as { i: number }).i));
     for (let i = 0; i < BENCH_SIZE; i++) if (!used.has(i)) return i;
@@ -280,6 +280,7 @@ export class Room {
       case 'move': ok = this.move(p, msg.id, msg.to); break;
       case 'equip': ok = this.equip(p, msg.item, msg.unitId); break;
       case 'choose': ok = this.choose(p, msg.i); break;
+      case 'rerollChoice': ok = this.rerollChoice(p, msg.i); break;
       case 'reroll': ok = this.reroll(p); break;
       case 'xp': ok = this.buyXp(p); break;
       case 'lock': p.locked = !p.locked; break;
@@ -530,6 +531,9 @@ export class Room {
       case 'caixamist': p.giveItems([randomCompleted(), randomCompleted(), randomCompleted()]); break;
       case 'ascensao': p.addXp(20); p.gold += 10; break;
       case 'rolagratis': p.freeRerolls += 1; break;
+      case 'kitbasico': p.giveItems([randomComponent()]); p.gold += 4; break;
+      case 'colherada': p.giveItems(['colher', randomComponent()]); break;
+      case 'colherdourada': p.giveItems(['colher', 'colher']); break;
       case 'presente': {
         const opts = SHOP_UNITS.filter((d) => d.cost === 5 && (this.pool[d.id] ?? 0) > 0);
         const d = opts[Math.floor(Math.random() * opts.length)];
@@ -577,7 +581,28 @@ export class Room {
     const opts = [...generic.slice(0, 2), ...(hearts.length ? [hearts[0]] : generic.slice(2, 3))];
     while (opts.length < 3 && generic.length > opts.length) opts.push(generic[opts.length]);
     const tierName = tier === 'prata' ? 'Prata' : tier === 'ouro' ? 'Ouro' : 'Prisma';
-    return { kind: 'augment', title: `Escolha um aprimoramento (${tierName})`, options: opts.sort(() => Math.random() - 0.5).map((g) => g.id) };
+    const options = opts.sort(() => Math.random() - 0.5).map((g) => g.id);
+    return { kind: 'augment', title: `Escolha um aprimoramento (${tierName})`, options, rerolled: options.map(() => false), tier };
+  }
+
+  /** Troca uma opção de aprimoramento por outra do mesmo tier (1 vez por opção). */
+  rerollChoice(p: Player, i: number): boolean {
+    const ch = p.choice;
+    if (!ch || ch.kind !== 'augment' || !ch.tier) return false;
+    i = Math.max(0, Math.min(ch.options.length - 1, i | 0));
+    const rr = ch.rerolled ?? ch.options.map(() => false);
+    if (rr[i]) return false;
+    const old = AUGMENTS[ch.options[i]];
+    const myTraits = new Set(p.units.flatMap((u) => UNITS[u.defId].traits));
+    const pool = augmentPool(ch.tier).filter((g) => !p.augments.includes(g.id) && !ch.options.includes(g.id) && (!g.trait || myTraits.has(g.trait)));
+    // mantém o "tipo" da opção (genérico ↔ sinergia) quando dá
+    const same = pool.filter((g) => !!g.trait === !!old?.trait);
+    const from = same.length ? same : pool;
+    if (!from.length) { this.toast(p, 'Nenhum outro aprimoramento disponível.'); return false; }
+    ch.options[i] = from[Math.floor(Math.random() * from.length)].id;
+    rr[i] = true;
+    ch.rerolled = rr;
+    return true;
   }
 
   makeArmoryChoice(): Choice {
@@ -649,8 +674,8 @@ export class Room {
     if (!v || this.phase !== 'portal' || !(i >= 0 && i < v.options.length)) return;
     v.votes.set(p.id, Math.floor(i));
     this.broadcastPortal();
-    if (this.players.every((x) => v.votes.has(x.id) || (!x.isBot && !x.connected))) {
-      v.end = Math.min(v.end, Date.now() + 1500);
+    if (v.end > Date.now() + 1600 && this.players.every((x) => v.votes.has(x.id) || (!x.isBot && !x.connected))) {
+      v.end = Date.now() + 1500;
       this.endsAt = v.end;
       this.setTimer(1500, () => this.finishPortal());
       this.broadcastState();

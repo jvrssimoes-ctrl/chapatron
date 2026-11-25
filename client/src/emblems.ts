@@ -357,7 +357,7 @@ const TIER_BG: Record<string, [string, string, string]> = {
   prata: ['#5a6a8a', '#2a3048', '#c7d3e0'], ouro: ['#8a6a1a', '#3a2a10', '#ffd23f'], prisma: ['#8a3ac8', '#1d4a8a', '#d68bff'],
 };
 
-export interface AugIconOpts { tier: string; trait?: string; traitColor?: string; bonus?: number }
+export interface AugIconOpts { tier: string; trait?: string; traitColor?: string; bonus?: number; emoji?: string }
 
 /** Ícone de aprimoramento com moldura do tier (128px). */
 export function augIcon(id: string, o: AugIconOpts) {
@@ -382,7 +382,7 @@ export function augIcon(id: string, o: AugIconOpts) {
     c.beginPath(); rr(c, 10, 10, 108, 108, 22); c.lineWidth = 2; c.strokeStyle = 'rgba(0,0,0,0.7)'; c.stroke();
     const draw = o.trait ? TG[o.trait] : AG[id];
     if (draw) c.drawImage(glyphCanvas(draw, 100, o.trait ? (o.traitColor ?? '#ffffff') : '#ffffff'), 14, 12, 100, 100);
-    else { c.font = '60px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('✨', 64, 66); }
+    else { c.font = '60px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(o.emoji ?? '✨', 64, 66); }
     if (o.trait && o.bonus) {
       const g = document.createElement('canvas'); g.width = g.height = 100;
       const gc = g.getContext('2d')!;

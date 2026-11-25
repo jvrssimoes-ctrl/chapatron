@@ -69,6 +69,11 @@ O container tem verificação de saúde em `/health`. Se a conexão cair, o jogo
 - **Visita e dano**: no PvP um time viaja até o tabuleiro do outro (casa/fora). No fim, os robôs que sobraram atiram na Pequena Lenda de quem perdeu, e o dano aparece em cima dela.
 - **Pequena Lenda**: escolha espécie (Fumacinha, Cogubolota, Robolinho, Geleca) e cor no menu (🎨). Ela dança quando você manda emote, coleta os orbes de saque e mostra pilhas de moedas no canto (uma por 10 de ouro).
 - **Portais**: antes do primeiro carrossel todos votam numa regra especial da partida (Chuva de Grana, Feira Livre, Rodízio de Carrossel, Colchão de Fumaça...).
+- **Dicas completas**: passar o mouse num componente mostra todas as combinações (com efeito e atributos; verde = dá pra montar com o que você tem). Itens mostram o que dão ao robô e pra quem são bons. Robôs (em campo, no banco ou na loja) mostram os itens recomendados, e os ícones de item em cima dos robôs também têm dica.
+- **Aprimoramentos**: cada opção pode ser trocada uma vez (🔄) e o jogo marca com ⭐ o que combina com seu time. Novos: Blindagem Caseira, Kit Básico, Pancadaria, Colherada, Exército da Brisa (+1 em campo) e Colher Dourada.
+- **Arenas**: escolha o cenário no perfil (Ilha da Brisa, Vulcão da Brasa, Geleira Mentolada e outras liberadas por conquistas).
+- **★★★ de custo alto**: custo 4 ★★★ vira *Monstro da Brisa* (muito mais vida, dano e mana, recebe menos dano) e custo 5 ★★★ vira *Divindade Chapada* (mana cheia no início, imune a controle, ataques explodem em volta e cada habilidade solta uma onda divina) e ganha a luta em poucos segundos. Teste de força: `npx tsx scripts/star3test.ts`.
+- **★★★ épico**: ao fechar um ★★★ sobe um pilar de luz dourada com onda de choque, chuva de faíscas, tremida e banner especial.
 - **Ajudas**: ao arrastar um robô o alcance dele aparece no tabuleiro, e as chances de cada custo na loja ficam embaixo do nível.
 ## Sinergias
 

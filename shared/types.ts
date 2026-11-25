@@ -137,6 +137,9 @@ export interface Choice {
   kind: 'augment' | 'armory';
   title: string;
   options: string[]; // ids de aprimoramentos ou itens
+  /** aprimoramento: quais opções já foram rerroladas (1 vez cada) */
+  rerolled?: boolean[];
+  tier?: AugTier;
 }
 
 // ---------- unidades ----------
@@ -250,6 +253,7 @@ export type ClientMsg =
   | { t: 'move'; id: string; to: Loc }
   | { t: 'equip'; item: number; unitId: string }
   | { t: 'choose'; i: number }
+  | { t: 'rerollChoice'; i: number }
   | { t: 'reroll' }
   | { t: 'xp' }
   | { t: 'lock' }

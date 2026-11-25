@@ -14,6 +14,7 @@ import { Post, loadQuality, saveQuality, type Quality } from './post';
 import { buildWorld, type World } from './world';
 import { Vfx } from './vfx';
 import { itemCanvas } from '../itemIcons';
+import { onArena } from '../arenas';
 import { onSkin, skin } from '../skins';
 import { buildAvatar, lookKey, parseLook, type AvatarModel } from './avatar';
 
@@ -44,6 +45,8 @@ export interface BoardCallbacks {
   overSell: (x: number, y: number) => boolean;
   /** clique direito num robô: abre o painel de detalhes */
   inspect?: (key: string | null) => void;
+  /** mouse sobre o ícone de um item acima de um robô */
+  hoverItem?: (id: string, x: number, y: number) => void;
 }
 
 /** cor "acima do branco" para estourar no bloom */
@@ -121,6 +124,15 @@ export class Scene3D {
   active = false;
   hoveredOwnedId: string | null = null;
   hoverShown = false;
+  /** retângulos dos ícones de item desenhados no overlay (para a dica) */
+  private itemHits: { x: number; y: number; s: number; id: string }[] = [];
+  /** animações de ★★★ em andamento */
+  private epics: {
+    t0: number; group: THREE.Group; beamMat: THREE.MeshBasicMaterial; coreMat: THREE.MeshBasicMaterial;
+    ringMat: THREE.MeshBasicMaterial; ring: THREE.Mesh; light: THREE.PointLight; pos: THREE.Vector3; sparks: number;
+  }[] = [];
+  /** tremida de câmera fora do combate */
+  private calmShake = 0;
   drag: { unit: OwnedUnit; x: number; y: number } | null = null;
   itemDragPos: { x: number; y: number } | null = null;
   replay: Replay | null = null;
@@ -212,7 +224,8 @@ export class Scene3D {
     s.environmentIntensity = 0.55;
 
     // ---- luzes: céu, sol quente, contraluz fria e neons ----
-    s.add(new THREE.HemisphereLight('#cbb8ff', '#1f4a2a', 0.9));
+    const hemi = new THREE.HemisphereLight('#cbb8ff', '#1f4a2a', 0.9);
+    s.add(hemi);
     const sun = new THREE.DirectionalLight('#fff1dc', 2.6);
     sun.position.set(7, 18, 9);
     sun.castShadow = true;
@@ -233,6 +246,14 @@ export class Scene3D {
     s.add(g1, g2);
 
     this.world = buildWorld(s, { quality: this.quality, benchZ: BENCH_Z, emit: (p, o) => this.emit(p, o) });
+    const fog = s.fog as THREE.FogExp2;
+    onArena((ar) => {
+      this.world?.setArena(ar);
+      fog.color.set(ar.fog);
+      (s.background as THREE.Color).set(ar.sky.top);
+      hemi.color.set(ar.hemi[0]); hemi.groundColor.set(ar.hemi[1]);
+      g1.color.set(ar.lights[0]); g2.color.set(ar.lights[1]);
+    });
 
     // ---- plataforma de pedra com borda dourada e neon ----
     const stone = noiseTexture('platform', '#3a2f55', ['#4f4270', '#251d3a', '#5d4f80'], 256, 1);
@@ -569,6 +590,16 @@ export class Scene3D {
       if (this.hoverShown) { this.cb.hover(null, 0, 0); this.hoverShown = false; }
       return;
     }
+    // ícone de item acima de um robô: mostra a dica do item
+    const or = this.overlay.getBoundingClientRect();
+    const lx = e.clientX - or.left, ly = e.clientY - or.top;
+    const hit = this.itemHits.find((h) => lx >= h.x - 1 && lx <= h.x + h.s + 1 && ly >= h.y - 1 && ly <= h.y + h.s + 1);
+    if (hit && this.cb.hoverItem) {
+      this.cb.hoverItem(hit.id, e.clientX, e.clientY);
+      this.hoverShown = true;
+      this.hoveredOwnedId = null;
+      return;
+    }
     const key = this.unitUnder(e.clientX, e.clientY);
     const info = key ? this.keyInfo.get(key) ?? null : null;
     this.cb.hover(info, e.clientX, e.clientY);
@@ -599,7 +630,7 @@ export class Scene3D {
     if (JSON.stringify(from) === JSON.stringify(to)) return;
     const me = this.me!;
     const other = me.units.find((x) => JSON.stringify(x.loc) === JSON.stringify(to));
-    if (!other && to.zone === 'board' && from.zone === 'bench' && me.units.filter((x) => x.loc.zone === 'board').length >= boardCap(me.level, me.units)) {
+    if (!other && to.zone === 'board' && from.zone === 'bench' && me.units.filter((x) => x.loc.zone === 'board').length >= boardCap(me.level, me.units, me.augments)) {
       sfx('error');
       net.send({ t: 'move', id: d.unit.id, to });
       return;
@@ -794,6 +825,67 @@ export class Scene3D {
       });
     }
     sfx('star');
+    if (star >= 3) this.tristarEpic(pos);
+  }
+
+  /** ★★★: pilar de luz dourada, onda de choque, chuva de faíscas, tremida e flash. */
+  private tristarEpic(pos: THREE.Vector3) {
+    const group = new THREE.Group();
+    group.position.copy(pos);
+    const beamMat = new THREE.MeshBasicMaterial({ color: hdr('#ffd23f', 3), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.9, 16, 24, 1, true), beamMat);
+    beam.position.y = 8;
+    const coreMat = beamMat.clone();
+    coreMat.color = hdr('#fff6d0', 4);
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 16, 12, 1, true), coreMat);
+    core.position.y = 8;
+    const ringMat = new THREE.MeshBasicMaterial({ color: hdr('#ffd23f', 3), transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    const light = new THREE.PointLight('#ffd23f', 0, 12, 1.5);
+    light.position.y = 2;
+    group.add(beam, core, ring, light);
+    this.scene.add(group);
+    this.epics.push({ t0: performance.now(), group, beamMat, coreMat, ringMat, ring, light, pos: pos.clone(), sparks: 0 });
+    this.calmShake = Math.max(this.calmShake, 0.35);
+    document.body.classList.remove('tristar-flash');
+    void document.body.offsetWidth;
+    document.body.classList.add('tristar-flash');
+    setTimeout(() => document.body.classList.remove('tristar-flash'), 1400);
+    setTimeout(() => sfx('augment'), 260);
+    setTimeout(() => sfx('star'), 620);
+  }
+
+  private updateEpics(now: number) {
+    for (let i = this.epics.length - 1; i >= 0; i--) {
+      const e = this.epics[i];
+      const k = (now - e.t0) / 2600;
+      if (k >= 1) {
+        this.scene.remove(e.group);
+        e.group.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } });
+        this.epics.splice(i, 1);
+        continue;
+      }
+      const up = Math.min(1, k / 0.12);
+      const fade = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+      e.beamMat.opacity = 0.55 * up * fade;
+      e.coreMat.opacity = 0.9 * up * fade;
+      e.group.children[0].scale.set(1 + Math.sin(now * 0.02) * 0.06, 1, 1 + Math.sin(now * 0.02) * 0.06);
+      const rk = Math.min(1, k / 0.45);
+      e.ring.scale.setScalar(0.5 + rk * 6.5);
+      e.ringMat.opacity = (1 - rk) * 0.9;
+      e.light.intensity = 40 * up * fade;
+      // faíscas douradas caindo em volta durante o pilar
+      while (e.sparks < k * 70 && k < 0.7) {
+        e.sparks++;
+        const a = Math.random() * Math.PI * 2, r = 0.4 + Math.random() * 1.8;
+        this.emit(e.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 3 + Math.random() * 4, Math.sin(a) * r)), {
+          vel: new THREE.Vector3(0, -2.5 - Math.random() * 2, 0), spread: 0.15, life: 1.2, s0: 0.28, s1: 0.04,
+          color: Math.random() < 0.5 ? '#ffe27a' : '#fff6d0', alpha: 1, additive: true,
+        });
+      }
+    }
   }
 
   private worldOf(obj: THREE.Object3D, out: THREE.Vector3) {
@@ -1205,6 +1297,7 @@ export class Scene3D {
     this.updateTiles(t, !!combat);
     this.world?.update(t, dt);
 
+    if (this.epics.length) this.updateEpics(performance.now());
     // câmera (balanço leve no menu, tremida em explosões)
     const cam = this.camera;
     if (!this.active) {
@@ -1217,6 +1310,10 @@ export class Scene3D {
       if (this.replay && this.replay.shake > 0.005) {
         cam.position.add(new THREE.Vector3((Math.random() - 0.5) * this.replay.shake, (Math.random() - 0.5) * this.replay.shake, 0));
         this.replay.shake *= 0.9;
+      }
+      if (this.calmShake > 0.005) {
+        cam.position.add(new THREE.Vector3((Math.random() - 0.5) * this.calmShake, (Math.random() - 0.5) * this.calmShake, 0));
+        this.calmShake *= 0.92;
       }
       cam.lookAt(this.camTarget);
     }
@@ -1683,6 +1780,7 @@ export class Scene3D {
     const ctx = this.octx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.W, this.H);
+    this.itemHits.length = 0;
     if (!this.active || !store.state) return;
     const unit = Math.max(9, Math.min(16, this.area.h / 48));
 
@@ -1837,6 +1935,7 @@ export class Scene3D {
       if (!ITEMS[id]) return;
       const bx = x - total / 2 + i * (s + gap);
       ctx.drawImage(itemCanvas(id), bx, y, s, s);
+      this.itemHits.push({ x: bx, y, s, id });
     });
     ctx.restore();
   }

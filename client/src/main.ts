@@ -1,7 +1,7 @@
 import './style.css';
 import { Scene3D } from './three/scene';
 import { UNITS } from '../../shared/data';
-import { banner, chatLine, esc, hideTip, hpHit, initHud, overSell, renderHud, setLeftTab, setSellMode, showTip, tickHud, toast, unitTipHtml } from './hud';
+import { banner, chatLine, esc, hideTip, hpHit, initHud, itemTipHtml, overSell, renderHud, setLeftTab, setSellMode, showTip, tickHud, toast, unitTipHtml } from './hud';
 import { net } from './net';
 import { isMuted, setMusic, sfx, toggleMute } from './sfx';
 import { store } from './store';
@@ -30,6 +30,7 @@ const board = new Scene3D($('stage'), {
   dragging: (on, value) => setSellMode(on, value),
   overSell,
   inspect: (key) => inspect(key),
+  hoverItem: (id, x, y) => showTip(itemTipHtml(id), x, y),
 });
 initInspect((k) => board.infoOf(k));
 if (import.meta.env.DEV) Object.assign(window, { __board: board, __store: store, __net: net });
@@ -198,7 +199,9 @@ net.on((msg) => {
           const before = prevStars.get(u.id);
           if (before === undefined || u.star <= before) continue;
           const d = UNITS[u.defId];
-          banner(`<span class="bn-stars">${'★'.repeat(u.star)}</span><b>${esc(d.name)}</b><small>${u.star === 3 ? 'NÍVEL MÁXIMO DA BRISA!' : 'evoluiu!'}</small>`, u.star === 3 ? 'gold' : 'silver');
+          if (u.star === 3) {
+            banner(`<span class="bn-stars">★★★</span><b>${esc(d.name)}</b><small>${d.cost >= 4 ? (d.cost === 5 ? 'DIVINDADE CHAPADA — ninguém segura!' : 'MONSTRO DA BRISA!') : 'NÍVEL MÁXIMO DA BRISA!'}</small>`, 'gold', d.cost >= 4 ? 4200 : 3400).classList.add('epic');
+          } else banner(`<span class="bn-stars">${'★'.repeat(u.star)}</span><b>${esc(d.name)}</b><small>evoluiu!</small>`, 'silver');
           onStarUp(u.star);
         }
         if (msg.me.hp < prevHp) hpHit(prevHp - msg.me.hp);

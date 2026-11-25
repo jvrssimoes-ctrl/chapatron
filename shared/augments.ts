@@ -22,6 +22,8 @@ a('golpecrit', 'prata', 'Golpe de Sorte', '🍀', 'Seu time ganha +15% de chance
 a('linhafrente', 'prata', 'Linha de Frente', '🧱', 'Robôs nas 2 fileiras da frente ganham +250 de vida.');
 a('reciclagem', 'prata', 'Ferro-Velho Lucrativo', '♻️', 'Vender um robô dá +1 de ouro extra.');
 a('pazinterior', 'prata', 'Paz Interior', '☮️', 'Seu time ganha +150 de vida máxima.');
+a('blindagem', 'prata', 'Blindagem Caseira', '🧱', 'Seu time ganha +15 de Armadura e Resistência Mágica.');
+a('kitbasico', 'prata', 'Kit Básico', '🧰', 'Ganha 1 componente aleatório e 4 de ouro agora.');
 a('vampiro', 'ouro', 'Larica Vampira', '🧛', 'Seu time ganha 12% de omnivampirismo (cura parte do dano causado).');
 
 // ---------- ouro ----------
@@ -33,6 +35,8 @@ a('socorro', 'ouro', 'Kit de Socorro', '🩹', 'Seu time começa o combate com e
 a('artilharia', 'ouro', 'Artilharia Chapada', '🎯', 'Robôs nas 2 fileiras de trás causam +20% de dano.');
 a('manainf', 'ouro', 'Fonte de Mana', '💧', 'Seu time começa o combate com +20 de mana.');
 a('laricacol', 'ouro', 'Larica Coletiva', '🍕', 'Seu time regenera 1% da vida máxima por segundo.');
+a('pancadaria', 'ouro', 'Pancadaria', '👊', 'Robôs corpo a corpo (alcance 1) ganham +25% de Velocidade de Ataque e +100 de vida.');
+a('colherada', 'ouro', 'Colherada', '🥄', 'Ganha 1 Colher de Pau e 1 componente aleatório agora.');
 
 // ---------- prisma ----------
 a('fortuna', 'prisma', 'Fortuna Verde', '💸', 'Ganha 30 de ouro agora.');
@@ -40,6 +44,8 @@ a('caixamist', 'prisma', 'Caixa Misteriosa', '📦', 'Ganha 3 itens completos al
 a('brisalend', 'prisma', 'Brisa Lendária', '🌈', 'Seu time causa +25% de dano.');
 a('ascensao', 'prisma', 'Ascensão', '🚀', 'Ganha 20 de XP e 10 de ouro agora.');
 a('presente', 'prisma', 'Presente dos Deuses', '🎀', 'Ganha um robô aleatório de custo 5 agora.');
+a('exercito', 'prisma', 'Exército da Brisa', '🪖', '+1 robô no tabuleiro (para sempre).');
+a('colherdourada', 'prisma', 'Colher Dourada', '🌟', 'Ganha 2 Colheres de Pau agora (vire um Chapéu de Mestre-Cuca ou 2 emblemas).');
 
 // ---------- corações (+1) e coroas (+2) de sinergia ----------
 for (const t of Object.values(TRAITS)) {

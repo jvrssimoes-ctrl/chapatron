@@ -533,7 +533,7 @@ function frame(c: C, id: string) {
   const it = ITEMS[id];
   const sp = !!it?.special;
   const comp = !it || it.component || sp;
-  const [a, b] = sp ? ['#3dffb0', '#7ad7ff'] : comp ? [THEME[id] ?? '#b07aff', THEME[id] ?? '#b07aff'] : [THEME[it.recipe![0]], THEME[it.recipe![1]]];
+  const [a, b] = sp ? ['#3dffb0', '#7ad7ff'] : comp ? [THEME[id] ?? '#b07aff', THEME[id] ?? '#b07aff'] : [THEME[it.recipe![0]] ?? '#ff9de2', THEME[it.recipe![1]] ?? '#ff9de2'];
   // borda
   c.beginPath(); rr(c, 3, 3, 122, 122, 24);
   c.fillStyle = id === 'maoleve'

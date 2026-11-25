@@ -1,4 +1,4 @@
-import { AD_STAR_MULT, BASE_CRIT, BASE_CRIT_DMG, HP_STAR_MULT, TRAITS, UNITS } from '../shared/data';
+import { AD_STAR_MULT, BASE_CRIT, BASE_CRIT_DMG, HP_STAR_MULT, TRAITS, UNITS, star3Power } from '../shared/data';
 import { COLS, COMBAT_ROWS, hexDist, lineHexes, localToCombat, neighbors } from '../shared/hex';
 import { COMPLETED, ITEMS } from '../shared/items';
 import { traitBonus } from '../shared/augments';
@@ -59,6 +59,8 @@ interface CU {
   killAS: number;
   recycle: number;
   dmgAmp: number;
+  /** redução de dano recebido (★★★ de custo alto) */
+  reduce: number;
   buffAS: number;
   buffUntil: number;
   turboUntil: number;
@@ -146,7 +148,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       shield: 0, shieldUntil: 0, stunUntil: 0, stunImmuneUntil: 0,
       nextAct: 300 + Math.floor(rng() * 300), target: null, alive: true,
       dodge: 0, crit: BASE_CRIT / 100, critDmg: 1 + BASE_CRIT_DMG / 100, abilityCrit: false, ap: 100,
-      omnivamp: 0, regen: 0, manaRegen: 0, killHeal: 0, killAS: 0, recycle: 0, dmgAmp: 0,
+      omnivamp: 0, regen: 0, manaRegen: 0, killHeal: 0, killAS: 0, recycle: 0, dmgAmp: 0, reduce: 0,
       buffAS: 0, buffUntil: 0, turboUntil: 0, armorShredUntil: 0, mrShredUntil: 0, healCutUntil: 0, dots: [],
       atkCount: 0, coleteStacks: 0, thornsReadyAt: 0, tampaDone: false, facaDone: false, escudoDone: true,
       jumper: def.role === 'assassin', manaFromHits: def.role === 'tank' ? 1.5 : 1,
@@ -209,14 +211,18 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       if (hasT('tanque')) maxHp += val('tanque');
       if (augs.has('linhafrente') && su.r <= 1) maxHp += 250;
       if (augs.has('pazinterior')) maxHp += 150;
+      if (augs.has('pancadaria') && def.range <= 1) maxHp += 100;
       if (has.has('marmita')) maxHp *= 1.12;
+      const p3 = star3Power(def.cost, star);
+      if (p3) maxHp *= p3.hp;
       cu.hp = cu.maxHp = maxHp;
 
       const sorr = hasT('sorrateiro') ? val('sorrateiro') / 100 : 0;
       cu.adPct = st.ad / 100 + (augs.has('furia') ? 0.15 : 0);
-      cu.asPct = st.as / 100 + (hasT('atirador') ? val('atirador') / 100 : 0) + teamAS;
-      cu.armor += teamRes + st.armor;
-      cu.mr += teamRes + st.mr;
+      cu.asPct = st.as / 100 + (hasT('atirador') ? val('atirador') / 100 : 0) + teamAS + (augs.has('pancadaria') && def.range <= 1 ? 0.25 : 0);
+      const blind = augs.has('blindagem') ? 15 : 0;
+      cu.armor += teamRes + st.armor + blind;
+      cu.mr += teamRes + st.mr + blind;
       cu.mana += st.mana + (hasT('hacker') ? val('hacker') : 0) + (augs.has('manainf') ? 20 : 0);
       cu.maxMana = Math.max(20, def.mana - (has.has('coroa') ? 10 : 0));
       cu.shield = teamShield; cu.shieldUntil = teamShield > 0 ? FOREVER : 0;
@@ -239,6 +245,15 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       cu.neonMana = hasT('neon') ? extra('neon') : 0;
       cu.paraAS = hasT('paranoico') ? val('paranoico') / 100 : 0;
       cu.piradoPct = hasT('pirado') ? val('pirado') / 100 : 0;
+      if (p3) {
+        cu.baseAd *= p3.ad;
+        cu.dmgAmp += p3.dmg;
+        cu.asPct += p3.as;
+        cu.reduce = p3.reduce;
+        cu.maxMana = Math.max(15, Math.round(cu.maxMana * p3.manaCost));
+        cu.mana = Math.min(cu.maxMana, cu.mana + cu.maxMana * p3.mana);
+        if (p3.cc) cu.stunImmuneUntil = FOREVER;
+      }
       if (has.has('escudocosmico')) {
         cu.shield += cu.maxHp * 0.3;
         cu.shieldUntil = cu.shieldUntil === FOREVER ? FOREVER : 8000;
@@ -488,6 +503,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
     else if (type === 'magic') amount *= 100 / (100 + Math.max(0, mrOf(tgt)));
     if (tgt.has.has('coracao')) amount *= tgt.hp > tgt.maxHp * 0.5 ? 0.75 : 0.85;
     if (kind === 'atk' && tgt.has.has('caixadagua')) amount *= 0.92;
+    if (tgt.reduce > 0) amount *= 1 - tgt.reduce;
     if (tgt.shield > 0) {
       const absorbed = Math.min(tgt.shield, amount);
       tgt.shield -= absorbed;
@@ -554,6 +570,14 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
     const ev = (extra: { tg?: number; tgs?: number[]; r?: number; c?: number; n?: number } = {}) =>
       events.push({ t, k: 'cast', u: u.uid, ab: ab.kind, ...extra });
     const adjEnemies = (center: { r: number; c: number }, rad = 1) => enemiesOf(u).filter((e) => hexDist(center.r, center.c, e.r, e.c) <= rad);
+    // ★★★ custo 5: toda habilidade solta uma onda divina (dano verdadeiro = 12% da vida máxima dele) em quem está a até 2 hexes
+    if (u.star >= 3 && u.def.cost >= 5 && !u.summon) {
+      const wave = adjEnemies(u, 2).filter((e) => e.alive);
+      if (wave.length) {
+        proc(u, 'rede', wave.map((e) => e.uid));
+        for (const e of wave) damage(u, e, u.maxHp * 0.12, 'true', 'proc');
+      }
+    }
     const lineFrom = (to: CU) => {
       const cells = lineHexes(u.r, u.c, to.r, to.c);
       const set = new Set(cells.map(([r, c]) => r * COLS + c));
@@ -1092,6 +1116,14 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
     if (u.hyperUntil > t) {
       const other = byDist(tg, enemiesOf(u).filter((e) => e !== tg && targetable(e)))[0];
       if (other) { fx(u, 'hiperespaco', { tg: other.uid }); damage(u, other, ad * 0.6, 'phys', 'proc', true); }
+    }
+    // ★★★ custo 5 ("divindade"): cada ataque explode nos inimigos em volta do alvo
+    if (u.star >= 3 && u.def.cost >= 5 && !u.summon) {
+      const near = enemiesOf(u).filter((e) => e !== tg && e.alive && dist(tg, e) <= 1);
+      if (near.length) {
+        proc(u, 'rede', near.map((e) => e.uid));
+        for (const e of near) damage(u, e, ad * 0.6, 'true', 'proc');
+      }
     }
     if (u.has.has('rede')) {
       const other = enemiesOf(u).filter((e) => e !== tg).sort((x, y) => dist(tg, x) - dist(tg, y))[0];
