@@ -1,6 +1,6 @@
 import { AD_STAR_MULT, BASE_CRIT, BASE_CRIT_DMG, HP_STAR_MULT, TRAITS, UNITS, star3Power } from '../shared/data';
 import { COLS, COMBAT_ROWS, hexDist, lineHexes, localToCombat, neighbors } from '../shared/hex';
-import { COMPLETED, ITEMS } from '../shared/items';
+import { COMPLETED, ITEMS, RADIANT_BONUS, baseItem, isRadiant } from '../shared/items';
 import { traitBonus } from '../shared/augments';
 import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../shared/traits';
 import type { AbilityKind, CombatEvent, CombatResult, CombatUnitInit, StatusKind, TraitId, UnitDef } from '../shared/types';
@@ -72,6 +72,7 @@ interface CU {
   coleteStacks: number;
   thornsReadyAt: number;
   tampaDone: boolean;
+  relogioDone: boolean;
   facaDone: boolean;
   escudoDone: boolean;
   jumper: boolean;
@@ -141,7 +142,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
   const makeCU = (def: UnitDef, side: 0 | 1, r: number, c: number, star: number, localR: number, items: string[]): CU => {
     const maxHp = def.hp * HP_STAR_MULT[star - 1];
     return {
-      uid: uid++, side, def, star, r, c, localR, items, has: new Set(items),
+      uid: uid++, side, def, star, r, c, localR, items, has: new Set(items.map(baseItem)),
       hp: maxHp, maxHp,
       baseAd: def.atk * AD_STAR_MULT[star - 1], adPct: 0, as: def.as, asPct: 0, range: def.range,
       armor: def.armor, mr: def.mr, mana: def.startMana, maxMana: def.mana,
@@ -150,7 +151,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       dodge: 0, crit: BASE_CRIT / 100, critDmg: 1 + BASE_CRIT_DMG / 100, abilityCrit: false, ap: 100,
       omnivamp: 0, regen: 0, manaRegen: 0, killHeal: 0, killAS: 0, recycle: 0, dmgAmp: 0, reduce: 0,
       buffAS: 0, buffUntil: 0, turboUntil: 0, armorShredUntil: 0, mrShredUntil: 0, healCutUntil: 0, dots: [],
-      atkCount: 0, coleteStacks: 0, thornsReadyAt: 0, tampaDone: false, facaDone: false, escudoDone: true,
+      atkCount: 0, coleteStacks: 0, thornsReadyAt: 0, tampaDone: false, relogioDone: false, facaDone: false, escudoDone: true,
       jumper: def.role === 'assassin', manaFromHits: def.role === 'tank' ? 1.5 : 1,
       abilityAmp: 0, neonMana: 0, paraAS: 0, paraDone: false, invulnUntil: 0, piradoPct: 0,
       blindUntil: 0, slowUntil: 0, slowAmt: 0, vulnUntil: 0, vulnAmt: 0, tauntBy: null, tauntUntil: 0,
@@ -212,6 +213,8 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       if (augs.has('linhafrente') && su.r <= 1) maxHp += 250;
       if (augs.has('pazinterior')) maxHp += 150;
       if (augs.has('pancadaria') && def.range <= 1) maxHp += 100;
+      const nRad = items.filter(isRadiant).length;
+      maxHp += nRad * RADIANT_BONUS.hp;
       if (has.has('marmita')) maxHp *= 1.12;
       const p3 = star3Power(def.cost, star);
       if (p3) maxHp *= p3.hp;
@@ -245,6 +248,11 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       cu.neonMana = hasT('neon') ? extra('neon') : 0;
       cu.paraAS = hasT('paranoico') ? val('paranoico') / 100 : 0;
       cu.piradoPct = hasT('pirado') ? val('pirado') / 100 : 0;
+      cu.dmgAmp += nRad * RADIANT_BONUS.dmg;
+      // ---- artefatos ----
+      if (has.has('armadurazen')) cu.invulnUntil = 2500;
+      if (has.has('terceiroolho')) { cu.abilityCrit = true; cu.critDmg += 0.3; }
+      if (has.has('discovoador')) { cu.jumper = true; cu.shield += cu.maxHp * 0.25; if (cu.shieldUntil !== FOREVER) cu.shieldUntil = Math.max(cu.shieldUntil, 4000); }
       if (p3) {
         cu.baseAd *= p3.ad;
         cu.dmgAmp += p3.dmg;
@@ -468,6 +476,12 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       u.invulnUntil = t + 1500;
       u.asPct += u.paraAS;
       events.push({ t, k: 'buff', u: u.uid, dur: 1500 });
+    }
+    if (!u.relogioDone && u.has.has('relogio') && pct <= 0.3) {
+      u.relogioDone = true;
+      u.invulnUntil = t + 2000;
+      heal(u, u.maxHp * 0.35);
+      proc(u, 'relogio');
     }
     if (!u.facaDone && u.has.has('facaeletrica') && pct <= 0.4) {
       u.facaDone = true;
@@ -1085,6 +1099,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
         ev();
     }
     if (u.has.has('coroa')) u.mana = 10;
+    if (u.has.has('cajado')) { u.ap += 12; proc(u, 'cajado'); }
     if (u.neonMana > 0) u.mana = Math.min(u.maxMana - 1, u.mana + u.neonMana);
     if (u.has.has('turbo')) { u.turboUntil = t + 5000; proc(u, 'turbo'); }
     void vAP;
@@ -1109,6 +1124,8 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
     const ad = adOf(u);
     damage(u, tg, ad, 'phys', 'atk', true);
     if (u.has.has('mira') && tg.alive) tg.armorShredUntil = t + 3000;
+    if (u.has.has('machado') && tg.alive) damage(u, tg, tg.maxHp * 0.04, 'true', 'proc');
+    if (u.has.has('chinelo') && tg.alive && u.atkCount % 4 === 0) { proc(u, 'chinelo', [tg.uid]); stun(tg, 1000); }
     if (u.has.has('megaseda')) u.asPct += 0.05;
     if (u.has.has('coleteseda')) u.coleteStacks = Math.min(0.25, u.coleteStacks + 0.02);
     if (u.popAttacks > 0) { u.popAttacks--; splash(u, tg, u.popPct, 'estouro'); }
@@ -1231,6 +1248,10 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
               for (const e of adj) { e.healCutUntil = Math.max(e.healCutUntil, t + 3000); damage(u, e, 60, 'magic', 'proc'); }
             }
           }
+        }
+        if (sec % 3 === 0 && u.has.has('cogumelodourado')) {
+          proc(u, 'cogumelodourado', alliesOf(u).map((x) => x.uid));
+          for (const al of alliesOf(u)) if (al.hp < al.maxHp) heal(al, al.maxHp * 0.04);
         }
         if (sec % 5 === 0) {
           if (u.has.has('garrafa')) { u.ap += 20; proc(u, 'garrafa'); }

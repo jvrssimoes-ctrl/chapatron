@@ -532,12 +532,16 @@ function mix(hex: string, k: number) {
 function frame(c: C, id: string) {
   const it = ITEMS[id];
   const sp = !!it?.special;
+  const rad = !!it?.radiant;
+  const art = !!it?.artifact;
   const comp = !it || it.component || sp;
-  const [a, b] = sp ? ['#3dffb0', '#7ad7ff'] : comp ? [THEME[id] ?? '#b07aff', THEME[id] ?? '#b07aff'] : [THEME[it.recipe![0]] ?? '#ff9de2', THEME[it.recipe![1]] ?? '#ff9de2'];
+  const rec = (rad ? ITEMS[it.radiant!].recipe : it?.recipe) ?? ['', ''];
+  const [a, b] = sp ? ['#3dffb0', '#7ad7ff'] : art ? ['#ff8a3d', '#3dd6ff'] : comp ? [THEME[id] ?? '#b07aff', THEME[id] ?? '#b07aff'] : [THEME[rec[0]] ?? '#ff9de2', THEME[rec[1]] ?? '#ff9de2'];
   // borda
   c.beginPath(); rr(c, 3, 3, 122, 122, 24);
-  c.fillStyle = id === 'maoleve'
+  c.fillStyle = id === 'maoleve' || rad
     ? lg(c, 0, 0, 128, 128, '#ff7ad9', '#7ad7ff', '#5dff7a', '#ffd23f', '#ff7ad9')
+    : art ? lg(c, 0, 0, 128, 128, '#ffe0b8', '#ff8a3d', '#5a1a0a', '#3dd6ff', '#0a3a5a')
     : sp ? lg(c, 0, 0, 128, 128, '#d6fff0', '#3dffb0', '#0a5a4a', '#9fffe0', '#1a7a6a')
     : comp ? lg(c, 0, 0, 128, 128, '#f4f6fb', '#8a92a6', '#4a5064', '#c8cede', '#6a7286')
       : lg(c, 0, 0, 128, 128, '#fff6c8', '#ffcf4a', '#8a5a00', '#ffe680', '#a06a00');
@@ -565,6 +569,14 @@ function frame(c: C, id: string) {
   c.fillRect(0, 0, 128, 50);
   c.restore();
   c.beginPath(); rr(c, 10, 10, 108, 108, 18); c.lineWidth = 2; c.strokeStyle = 'rgba(0,0,0,0.7)'; c.stroke();
+  if (rad) {
+    // brilho radiante: estrelinhas nos cantos
+    for (const [x, y] of [[20, 20], [108, 20], [20, 108], [108, 108]]) {
+      c.beginPath();
+      for (let i = 0; i < 8; i++) { const r = i % 2 ? 2.5 : 8; const ang = (i / 8) * TAU - TAU / 4; c.lineTo(x + Math.cos(ang) * r, y + Math.sin(ang) * r); }
+      c.closePath(); c.fillStyle = '#fff6c8'; c.fill();
+    }
+  }
   if (!comp) {
     for (const [x, y] of [[64, 6], [64, 122]]) {
       c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x + 6, y); c.lineTo(x, y + 6); c.lineTo(x - 6, y); c.closePath();
@@ -586,7 +598,7 @@ function render(id: string) {
   gl.width = gl.height = SIZE;
   const g = gl.getContext('2d')!;
   g.translate(14, 12); g.scale(1, 1);
-  const draw = G[id];
+  const draw = G[id] ?? (ITEMS[id]?.radiant ? G[ITEMS[id].radiant!] : undefined);
   if (draw) draw(g);
   else { g.font = '64px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ITEMS[id]?.icon ?? '❔', 50, 54); }
   c.save();

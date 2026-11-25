@@ -36,6 +36,7 @@ a('artilharia', 'ouro', 'Artilharia Chapada', '🎯', 'Robôs nas 2 fileiras de 
 a('manainf', 'ouro', 'Fonte de Mana', '💧', 'Seu time começa o combate com +20 de mana.');
 a('laricacol', 'ouro', 'Larica Coletiva', '🍕', 'Seu time regenera 1% da vida máxima por segundo.');
 a('pancadaria', 'ouro', 'Pancadaria', '👊', 'Robôs corpo a corpo (alcance 1) ganham +25% de Velocidade de Ataque e +100 de vida.');
+a('bauartefato', 'ouro', 'Baú de Artefatos', '🧳', 'Ganha 1 Artefato aleatório agora (item único e poderoso, sem receita).');
 a('colherada', 'ouro', 'Colherada', '🥄', 'Ganha 1 Colher de Pau e 1 componente aleatório agora.');
 
 // ---------- prisma ----------
@@ -45,6 +46,7 @@ a('brisalend', 'prisma', 'Brisa Lendária', '🌈', 'Seu time causa +25% de dano
 a('ascensao', 'prisma', 'Ascensão', '🚀', 'Ganha 20 de XP e 10 de ouro agora.');
 a('presente', 'prisma', 'Presente dos Deuses', '🎀', 'Ganha um robô aleatório de custo 5 agora.');
 a('exercito', 'prisma', 'Exército da Brisa', '🪖', '+1 robô no tabuleiro (para sempre).');
+a('forjaradiante', 'prisma', 'Forja Radiante', '🌟', 'Ganha 1 item completo e 1 Forja Radiante (transforma um item em Radiante).');
 a('colherdourada', 'prisma', 'Colher Dourada', '🌟', 'Ganha 2 Colheres de Pau agora (vire um Chapéu de Mestre-Cuca ou 2 emblemas).');
 
 // ---------- corações (+1) e coroas (+2) de sinergia ----------

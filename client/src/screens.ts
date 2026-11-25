@@ -1,5 +1,8 @@
-import { UNITS } from '../../shared/data';
+import { COST_COLORS, UNITS } from '../../shared/data';
+import type { BoardPreviewUnit, GameMode } from '../../shared/types';
 import { robotPortrait } from './three/portrait';
+import { itemImg } from './itemIcons';
+import { rankOf } from './rank';
 
 // Menu, lobby e fim de jogo: avatares de robô, desfile, fumaça de fundo, pódio e confete.
 
@@ -118,10 +121,56 @@ const PLACE_TXT: Record<number, [string, string]> = {
   4: ['TOP 4!', 'Ainda na brisa. Dá pra se orgulhar.'],
 };
 
-export function gameoverHtml(ranking: { id: string; name: string; place: number; isBot: boolean }[], youId: string | null, isHost: boolean, esc: (s: string) => string) {
+type RankRow = { id: string; name: string; place: number; isBot: boolean; team?: number; board?: BoardPreviewUnit[]; level?: number };
+
+/** Time final em miniatura (retratos com estrelas, custo e itens). */
+export function boardStrip(board: BoardPreviewUnit[] = []) {
+  if (!board.length) return '<div class="go-empty">sem robôs em campo</div>';
+  return [...board].sort((a, b) => UNITS[b.defId].cost * 10 + b.star - (UNITS[a.defId].cost * 10 + a.star)).map((u) => {
+    const d = UNITS[u.defId];
+    if (!d) return '';
+    return `<div class="go-unit s${u.star}" style="--cc:${COST_COLORS[d.cost]}" title="${d.name} ${'★'.repeat(u.star)}">
+      <img src="${robotPortrait(u.defId, d.look)}" alt=""><span class="go-st">${'★'.repeat(u.star)}</span>
+      ${u.items.length ? `<div class="go-items">${u.items.map((i) => itemImg(i)).join('')}</div>` : ''}</div>`;
+  }).join('');
+}
+
+export function gameoverHtml(ranking: RankRow[], youId: string | null, isHost: boolean, esc: (s: string) => string,
+  extra: { mode?: GameMode; rank?: { before: number; after: number; delta: number } | null } = {}) {
   const me = ranking.find((r) => r.id === youId);
   const place = me?.place ?? 0;
-  const [title, sub] = PLACE_TXT[place] ?? [`VOCÊ FICOU EM ${place}º`, 'A brisa acabou cedo... bora outra?'];
+  const dupla = extra.mode === 'dupla';
+  const [title, sub] = dupla && place === 1 ? ['DUPLA CAMPEÃ!', 'A dupla mais chapada da quebrada. 🤝👑'] : PLACE_TXT[place] ?? [`VOCÊ FICOU EM ${place}º`, 'A brisa acabou cedo... bora outra?'];
+  const rk = extra.rank;
+  const rankHtml = rk ? (() => {
+    const a = rankOf(rk.after);
+    return `<div class="go-rank" style="--rc:${a.tier.color}"><span class="go-rank-ic">${a.tier.icon}</span>
+      <div><b>${esc(a.label)}</b><div class="pf-rank-bar"><i style="width:${a.top ? 100 : a.pts}%"></i></div></div>
+      <em class="${rk.delta >= 0 ? 'lp-up' : 'lp-down'}">${rk.delta >= 0 ? '+' : ''}${rk.delta} pts</em></div>`;
+  })() : '';
+  const mineBoard = me?.board?.length ? `<div class="go-sec">Seu time final${me.level ? ` · nível ${me.level}` : ''}</div><div class="go-board">${boardStrip(me.board)}</div>` : '';
+  const champs = ranking.filter((r) => r.place === 1 && r.id !== youId);
+  const champBoard = champs.length ? champs.map((c) => `<div class="go-sec">${dupla ? 'Dupla campeã' : 'Time campeão'}: ${esc(c.name)}</div><div class="go-board">${boardStrip(c.board)}</div>`).join('') : '';
+  if (dupla) {
+    // ranking por dupla
+    const teams = [...new Set(ranking.map((r) => r.team ?? -1))].map((t) => ({ t, mem: ranking.filter((r) => (r.team ?? -1) === t) }))
+      .sort((a, b) => a.mem[0].place - b.mem[0].place);
+    const rows = teams.map((g, i) => `<li class="go-team ${g.mem.some((m) => m.id === youId) ? 'me' : ''}" style="animation-delay:${0.3 + i * 0.1}s"><b>${g.mem[0].place}º</b>
+      ${g.mem.map((m) => `${avatarHtml(m.name, 'avatar mini')}<span>${esc(m.name)}</span>`).join('<i>🤝</i>')}</li>`).join('');
+    return `
+    <div class="go-box wide place-${Math.min(place, 5)}">
+      <div class="go-medal">${place || '?'}º</div>
+      <h1>${title}</h1>
+      <p class="go-sub">${sub}</p>
+      ${rankHtml}
+      <ol class="go-teams">${rows}</ol>
+      ${mineBoard}${champBoard}
+      <div class="go-btns">
+        ${isHost ? '<button id="restartBtn" class="btn primary big">Nova partida</button>' : '<p class="hint">Esperando o anfitrião...</p>'}
+        <button id="exitBtn" class="btn">Sair</button>
+      </div>
+    </div>`;
+  }
   const by = (p: number) => ranking.find((r) => r.place === p);
   const podium = [2, 1, 3].map((p) => {
     const r = by(p);
@@ -136,12 +185,14 @@ export function gameoverHtml(ranking: { id: string; name: string; place: number;
   const rest = ranking.filter((r) => r.place > 3).sort((a, b) => a.place - b.place)
     .map((r, i) => `<li class="${r.id === youId ? 'me' : ''}" style="animation-delay:${0.9 + i * 0.08}s"><b>${r.place}º</b>${avatarHtml(r.name, 'avatar mini')}<span>${esc(r.name)}</span>${r.isBot ? '<small>🤖</small>' : ''}</li>`).join('');
   return `
-    <div class="go-box place-${Math.min(place, 5)}">
+    <div class="go-box wide place-${Math.min(place, 5)}">
       <div class="go-medal">${place || '?'}º</div>
       <h1>${title}</h1>
       <p class="go-sub">${sub}</p>
+      ${rankHtml}
       <div class="podium">${podium}</div>
       ${rest ? `<ol class="go-rest">${rest}</ol>` : ''}
+      ${mineBoard}${champBoard}
       <div class="go-btns">
         ${isHost ? '<button id="restartBtn" class="btn primary big">Nova partida</button>' : '<p class="hint">Esperando o anfitrião...</p>'}
         <button id="exitBtn" class="btn">Sair</button>

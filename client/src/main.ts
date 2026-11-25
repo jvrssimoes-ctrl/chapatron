@@ -1,6 +1,8 @@
 import './style.css';
 import { Scene3D } from './three/scene';
 import { UNITS } from '../../shared/data';
+import { MODES, MODE_IDS, TEAM_COLORS } from '../../shared/modes';
+import type { GameMode } from '../../shared/types';
 import { banner, chatLine, esc, hideTip, hpHit, initHud, itemTipHtml, overSell, renderHud, setLeftTab, setSellMode, showTip, tickHud, toast, unitTipHtml } from './hud';
 import { net } from './net';
 import { isMuted, setMusic, sfx, toggleMute } from './sfx';
@@ -9,7 +11,8 @@ import { avatarHtml, confetti, gameoverHtml, initMenuFx, initParade } from './sc
 import { closeGuide, isGuideOpen, openGuide, toggleGuide } from './guide';
 import { checkTips } from './tips';
 import { initEmotes, showEmote } from './emotes';
-import { closeProfile, isProfileOpen, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
+import { closeProfile, isProfileOpen, myLp, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
+import { rankBadge } from './rank';
 import { closeInspect, initInspect, inspect, isInspectOpen } from './inspect';
 import { closePicker, isPickerOpen, myLookKey, openPicker } from './avatarPicker';
 import { hidePortalVote, onPortalMsg } from './portalVote';
@@ -94,7 +97,12 @@ function renderLobby() {
   $('lobbyCode').textContent = l.room;
   $('lobbyLink').textContent = inviteLink();
   $('lobbyCount').textContent = `${l.players.length}/8`;
-  $('lobbyPlayers').innerHTML = l.players.map((p, i) => {
+  $('modePick').innerHTML = `<div class="mp-title">Modo de jogo ${isHost ? '' : '<small>(o anfitrião escolhe)</small>'}</div><div class="mp-row">${MODE_IDS.map((id) => {
+    const m = MODES[id];
+    return `<button class="mp-card ${l.mode === id ? 'on' : ''}" data-mode="${id}" style="--mc:${m.color}" ${isHost ? '' : 'disabled'}>
+      <span class="mp-icon">${m.icon}</span><b>${m.name}</b><small>${esc(m.desc)}</small></button>`;
+  }).join('')}</div>`;
+  const lpHtml = (p: (typeof l.players)[number], i: number) => {
     const tags = [
       p.id === l.hostId ? '<i class="tag host">👑 Anfitrião</i>' : '',
       p.id === store.youId ? '<i class="tag you">Você</i>' : '',
@@ -106,7 +114,20 @@ function renderLobby() {
       <div class="lp-main"><div class="lp-name">${esc(p.name)}</div><div class="lp-tags">${tags}</div></div>
       ${isHost && p.id !== store.youId ? `<button class="kick" data-id="${p.id}" title="Remover">✖</button>` : ''}
     </div>`;
-  }).join('') + Array.from({ length: Math.max(0, 8 - l.players.length) }, () => '<div class="lp empty"><span class="plus">+</span> vaga livre</div>').join('');
+  };
+  const lp = $('lobbyPlayers');
+  lp.classList.toggle('teams', l.mode === 'dupla');
+  if (l.mode === 'dupla') {
+    const me = l.players.find((p) => p.id === store.youId);
+    lp.innerHTML = [0, 1, 2, 3].map((t) => {
+      const mem = l.players.filter((p) => p.team === t);
+      const canJoin = mem.length < 2 && me?.team !== t;
+      return `<div class="lteam" style="--tc:${TEAM_COLORS[t]}"><div class="lteam-head">🤝 Dupla ${t + 1}${canJoin ? `<button class="btn small ghost" data-team="${t}">Entrar</button>` : ''}</div>
+        ${mem.map((p, i) => lpHtml(p, t * 2 + i)).join('')}${Array.from({ length: 2 - mem.length }, () => '<div class="lp empty"><span class="plus">+</span> vaga livre</div>').join('')}</div>`;
+    }).join('');
+  } else {
+    lp.innerHTML = l.players.map(lpHtml).join('') + Array.from({ length: Math.max(0, 8 - l.players.length) }, () => '<div class="lp empty"><span class="plus">+</span> vaga livre</div>').join('');
+  }
   $('addBotBtn').classList.toggle('hidden', !isHost);
   $('startBtn').classList.toggle('hidden', !isHost);
   $('waitHost').classList.toggle('hidden', isHost);
@@ -115,6 +136,12 @@ function renderLobby() {
 $('lobbyPlayers').addEventListener('click', (e) => {
   const b = (e.target as HTMLElement).closest('.kick') as HTMLElement | null;
   if (b) net.send({ t: 'kick', id: b.dataset.id! });
+  const tb = (e.target as HTMLElement).closest('[data-team]') as HTMLElement | null;
+  if (tb) { sfx('click'); net.send({ t: 'team', team: Number(tb.dataset.team) }); }
+});
+$('modePick').addEventListener('click', (e) => {
+  const c = (e.target as HTMLElement).closest('.mp-card') as HTMLButtonElement | null;
+  if (c && !c.disabled) { sfx('click'); net.send({ t: 'mode', mode: c.dataset.mode as GameMode }); }
 });
 $('addBotBtn').onclick = () => { sfx('click'); net.send({ t: 'addBot' }); };
 $('startBtn').onclick = () => { sfx('click'); net.send({ t: 'start' }); };
@@ -126,6 +153,8 @@ $('leaveBtn').onclick = () => { location.href = location.pathname; };
 $('guideBtn').onclick = () => openGuide();
 $('menuGuideBtn').onclick = () => openGuide();
 $('profileBtn').onclick = () => openProfile();
+const syncRank = () => { $('menuRank').innerHTML = rankBadge(myLp(), 'big'); };
+syncRank();
 $('avatarBtn').onclick = () => openPicker();
 $('lobbyAvatarBtn').onclick = () => openPicker();
 $('menuMute').onclick = () => { $('menuMute').textContent = toggleMute() ? '🔇' : '🔊'; };
@@ -225,8 +254,10 @@ net.on((msg) => {
     case 'gameover': {
       const me = msg.ranking.find((r) => r.id === store.youId);
       const isHost = store.state?.hostId === store.youId;
-      if (me) trackGameOver(me.place, msg.ranking.length);
-      $('gameover').innerHTML = gameoverHtml(msg.ranking, store.youId, isHost, esc);
+      const total = msg.mode === 'dupla' ? new Set(msg.ranking.map((r) => r.team)).size : msg.ranking.length;
+      const rank = me ? trackGameOver(me.place, total, msg.mode) : null;
+      syncRank();
+      $('gameover').innerHTML = gameoverHtml(msg.ranking, store.youId, isHost, esc, { mode: msg.mode, rank });
       $('gameover').classList.remove('hidden');
       if (me && me.place <= 4) confetti($('gameover'), me.place === 1 ? 7000 : 3500);
       sfx(me?.place === 1 ? 'win' : 'lose');

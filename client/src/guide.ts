@@ -1,6 +1,7 @@
 import { COST_COLORS, ROLES, TRAITS, UNITS, traitText } from '../../shared/data';
 import { AUGMENTS, TIER_COLOR, TIER_NAME } from '../../shared/augments';
-import { ALL_COMPONENTS as COMPONENTS, ITEMS, combine } from '../../shared/items';
+import { ALL_COMPONENTS as COMPONENTS, ARTIFACTS, ITEMS, combine } from '../../shared/items';
+import { recommendedComps } from './comps';
 import type { AugTier, TraitId } from '../../shared/types';
 import { augIcon, roleImg, traitImg } from './emblems';
 import { augmentTipHtml, esc, hideTip, itemTipHtml, showTip, traitTipHtml, unitTipHtml } from './hud';
@@ -11,8 +12,8 @@ import { sfx } from './sfx';
 
 // Guia do jogo: básico, sinergias, robôs, itens e aprimoramentos.
 
-type Tab = 'basico' | 'sinergias' | 'robos' | 'itens' | 'aprimoramentos';
-const TABS: [Tab, string][] = [['basico', 'Como jogar'], ['sinergias', 'Sinergias'], ['robos', 'Robôs'], ['itens', 'Itens'], ['aprimoramentos', 'Aprimoramentos']];
+type Tab = 'basico' | 'sinergias' | 'robos' | 'times' | 'itens' | 'aprimoramentos';
+const TABS: [Tab, string][] = [['basico', 'Como jogar'], ['sinergias', 'Sinergias'], ['robos', 'Robôs'], ['times', 'Times'], ['itens', 'Itens'], ['aprimoramentos', 'Aprimoramentos']];
 
 let root: HTMLElement | null = null;
 let tab: Tab = 'basico';
@@ -67,7 +68,7 @@ function render() {
   if (!root) return;
   root.querySelectorAll<HTMLElement>('.gd-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   const body = root.querySelector('.gd-body') as HTMLElement;
-  body.innerHTML = tab === 'basico' ? basico() : tab === 'sinergias' ? sinergias() : tab === 'robos' ? robos() : tab === 'itens' ? itens() : aprimoramentos();
+  body.innerHTML = tab === 'basico' ? basico() : tab === 'sinergias' ? sinergias() : tab === 'robos' ? robos() : tab === 'itens' ? itens() : tab === 'times' ? times() : aprimoramentos();
   body.scrollTop = 0;
 }
 
@@ -84,6 +85,7 @@ function basico() {
     ${step(6, 'Cuide da economia', 'Guarde ouro: cada 10 💰 rende +1 por rodada (máx. +5). Sequências de vitórias ou derrotas dão bônus. Gaste quando a vida apertar ou quando subir de nível.')}
     ${step(7, 'Suba de nível', 'Comprar XP (<kbd>F</kbd>) aumenta o limite do tabuleiro e melhora as chances de robôs caros na loja. Robôs de 4 e 5 custo vencem jogos.')}
     ${step(8, 'Aprimoramentos e arsenal', 'Em 2-1, 3-2 e 4-2 você escolhe um <b>aprimoramento</b> permanente (cada opção pode ser trocada 🔄 uma vez; ⭐ marca o que combina com seu time). Passe o mouse num componente para ver todas as combinações (verde = dá pra montar agora) e num robô para ver os itens recomendados. Na rodada 4 de cada estágio tem o <b>carrossel</b> 🎠 (clique no chão para andar com a sua Fumacinha e pegue um robô com item — quem tem menos vida escolhe primeiro) e na rodada 5 o <b>arsenal</b> 🎁 com um item de graça. Clique direito num robô abre o painel de detalhes. A <b>Colher de Pau</b> 🥄 vira Emblema (sinergia extra) e no começo de cada partida todo mundo vota num <b>portal</b> 🌀 com uma regra especial.')}
+    ${step(9, 'Modos, ranque e times', 'No lobby o anfitrião escolhe o modo: 🌿 <b>Normal</b>, ⚡ <b>Turbo</b> (rápido: ouro fixo, nível automático, rolar custa 1) ou 🤝 <b>Dupla</b> (2v2 com vida dividida — clique direito num item ou use o painel do robô para mandar pro parceiro). Cada partida mexe no seu <b>ranque</b> 🔩→👑. Depois do estágio 4 aparecem <b>Artefatos</b> ◆ e a <b>Forja Radiante</b> 🌟. Sem ideia de time? Veja a aba <b>Times</b>.')}
   </div>
   <div class="gd-keys"><h4>Atalhos</h4>
     <span><kbd>1</kbd>–<kbd>5</kbd> comprar</span><span><kbd>D</kbd> rolar loja</span><span><kbd>F</kbd> comprar XP</span>
@@ -133,7 +135,28 @@ function itens() {
   }).join('')}</tr>`).join('');
   const comps = COMPONENTS.map((c) => `<span data-tip="i:${c}">${itemImg(c)} <b>${esc(ITEMS[c].name)}</b> <small>${esc(ITEMS[c].desc)}</small></span>`).join('');
   return `<p class="gd-hint">Linha + coluna = item completo. Passe o mouse para ver o que cada um faz.</p>
-    <div class="gd-items"><table class="gd-recipes">${head}${rows}</table><div class="gd-comps"><h4>Componentes</h4>${comps}</div></div>`;
+    <div class="gd-items"><table class="gd-recipes">${head}${rows}</table><div class="gd-comps"><h4>Componentes</h4>${comps}</div></div>
+    <h4>◆ Artefatos <small>(sem receita — vêm do arsenal, de drones no estágio 4+ e do Baú de Artefatos)</small></h4>
+    <div class="gd-arts">${ARTIFACTS.map((id) => `<span data-tip="i:${id}">${itemImg(id)} <b>${esc(ITEMS[id].name)}</b> <small>${esc(ITEMS[id].desc)}</small></span>`).join('')}</div>
+    <h4>✦ Radiantes</h4>
+    <p class="gd-hint">Use a <span data-tip="i:forja">${itemImg('forja')} <b>Forja Radiante</b></span> num robô para transformar um item completo dele em Radiante: atributos dobrados, +20% de dano e +200 de vida. Ela aparece no arsenal e nos drones do estágio 5+ e no aprimoramento Forja Radiante.</p>
+    <div class="gd-arts">${['r_lancachamas', 'r_megaseda', 'r_cachimbogig', 'r_caixadagua'].map((id) => `<span data-tip="i:${id}">${itemImg(id)} <b>${esc(ITEMS[id].name)}</b></span>`).join('')}</div>`;
+}
+
+function times() {
+  const list = recommendedComps(8);
+  return `<p class="gd-hint">Times montados em volta de uma sinergia, com quem carrega e os itens ideais. Use como ponto de partida — adapte ao que a loja te der!</p>
+  <div class="gd-teams">${list.map((c) => `<div class="gd-team">
+    <div class="gd-team-head"><b>${esc(c.name)}</b><span>${c.traits.slice(0, 4).map((t) => `<span class="gd-tchip" style="--tc:${TRAITS[t.id].color}" data-tip="t:${t.id}">${traitImg(t.id, TRAITS[t.id].color)}${t.count}</span>`).join('')}</span></div>
+    <div class="gd-team-units">${c.units.map((id) => {
+      const d = UNITS[id];
+      const role = id === c.carry ? '<em class="carry">CARREGA</em>' : id === c.tank ? '<em class="tank">TANQUE</em>' : '';
+      return `<div class="gd-tu" data-tip="u:${id}" style="--cc:${COST_COLORS[d.cost]}"><img src="${robotPortrait(id, d.look)}" alt="">${role}<small>${esc(d.name)}</small></div>`;
+    }).join('')}</div>
+    <div class="gd-team-items"><span>${esc(UNITS[c.carry].name)}:</span>${c.carryItems.map((i) => `<i data-tip="i:${i}">${itemImg(i)}</i>`).join('')}
+      <span>${esc(UNITS[c.tank].name)}:</span>${c.tankItems.map((i) => `<i data-tip="i:${i}">${itemImg(i)}</i>`).join('')}</div>
+    <p class="gd-team-tip">${esc(c.tip)}</p>
+  </div>`).join('')}</div>`;
 }
 
 function aprimoramentos() {

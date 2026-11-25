@@ -114,6 +114,10 @@ export interface ItemDef {
   special?: boolean;
   /** Emblema: o portador ganha essa sinergia */
   emblem?: TraitId;
+  /** versão Radiante deste item base */
+  radiant?: string;
+  /** Artefato: item único sem receita */
+  artifact?: boolean;
   recipe?: [string, string];
   stats: ItemStats;
   desc: string;
@@ -173,6 +177,8 @@ export interface PublicPlayer {
   augments: string[];
   /** visual da Pequena Lenda ("especie:cor") */
   avatar: string;
+  /** dupla (modo Dupla) ou -1 */
+  team: number;
 }
 
 export interface PrivateState {
@@ -193,7 +199,10 @@ export interface PrivateState {
   alive: boolean;
 }
 
-export interface LobbyPlayer { id: string; name: string; isBot: boolean; connected: boolean; avatar: string }
+export interface LobbyPlayer { id: string; name: string; isBot: boolean; connected: boolean; avatar: string; team: number }
+
+/** normal · turbo (partida rápida) · dupla (2v2 com vida compartilhada) */
+export type GameMode = 'normal' | 'turbo' | 'dupla';
 
 export interface CombatUnitInit {
   uid: number;
@@ -261,11 +270,15 @@ export type ClientMsg =
   | { t: 'chat'; msg: string }
   | { t: 'emote'; e: number }
   | { t: 'walk'; x: number; z: number }
-  | { t: 'vote'; i: number };
+  | { t: 'vote'; i: number }
+  | { t: 'mode'; mode: GameMode }
+  | { t: 'team'; team: number }
+  /** modo Dupla: manda um item do banco ou um robô do banco para a dupla */
+  | { t: 'gift'; item?: number; unitId?: string };
 
 export type ServerMsg =
   | { t: 'joined'; room: string; youId: string }
-  | { t: 'lobby'; room: string; hostId: string; players: LobbyPlayer[] }
+  | { t: 'lobby'; room: string; hostId: string; players: LobbyPlayer[]; mode: GameMode }
   | {
       t: 'state';
       phase: Phase;
@@ -279,10 +292,11 @@ export type ServerMsg =
       opponentId: string | null;
       /** regra especial da partida (portal votado) */
       portal: string | null;
+      mode: GameMode;
     }
   /** home: lado dono do tabuleiro (o outro está visitando) · dmg: dano que o perdedor leva na vida */
   | { t: 'combat'; round: number; mySide: 0 | 1; opponentName: string; opponentId?: string; pve: boolean; result: CombatResult; elapsed?: number; home: 0 | 1; dmg: number }
-  | { t: 'gameover'; ranking: { id: string; name: string; place: number; isBot: boolean }[] }
+  | { t: 'gameover'; ranking: { id: string; name: string; place: number; isBot: boolean; team: number; board: BoardPreviewUnit[]; level: number }[]; mode: GameMode }
   | { t: 'chat'; from: string; msg: string }
   | { t: 'emote'; from: string; e: number }
   | { t: 'carousel'; units: CarouselUnit[]; angle: number; spin: number; radius: number; avatars: CarouselAvatar[]; unlocked: string[]; locked: string[]; endsIn: number }

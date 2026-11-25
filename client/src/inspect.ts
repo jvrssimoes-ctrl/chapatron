@@ -5,6 +5,8 @@ import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../../shared
 import { esc, unitTipHtml } from './hud';
 import { itemImg } from './itemIcons';
 import { store } from './store';
+import { net } from './net';
+import { sfx } from './sfx';
 import type { HoverInfo } from './three/scene';
 
 // Painel fixo de detalhes do robô (clique direito num robô), igual ao painel de campeão do TFT.
@@ -22,6 +24,14 @@ export function initInspect(fn: (k: string) => HoverInfo | null) {
   el.className = 'hidden';
   document.body.appendChild(el);
   el.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.ins-x')) closeInspect(); });
+  // pointerdown: o painel se redesenha a cada 200ms e um click poderia se perder
+  el.addEventListener('pointerdown', (e) => {
+    const g = (e.target as HTMLElement).closest('.ins-gift') as HTMLElement | null;
+    if (!g) return;
+    net.send({ t: 'gift', unitId: g.dataset.id! });
+    sfx('click');
+    closeInspect();
+  });
 }
 
 export const isInspectOpen = () => key !== null;
@@ -74,8 +84,13 @@ function render() {
     const it = ITEMS[id];
     return it ? `<div class="ins-item">${itemImg(id)}<div><b>${esc(it.name)}</b><small>${esc(it.desc)}</small></div></div>` : '';
   }).join('');
+  const own = info.ownedId ? me?.units.find((u) => u.id === info.ownedId) : undefined;
+  const st = store.state;
+  const mate = st?.mode === 'dupla' ? st.players.find((p) => p.team >= 0 && p.id !== store.youId && p.team === st.players.find((x) => x.id === store.youId)?.team && p.alive) : undefined;
+  const canGift = !!own && !!mate && (own.loc.zone === 'bench' || st?.phase !== 'combat');
   el.innerHTML = `
     <button class="ins-x" title="Fechar (Esc)">✕</button>
+    ${canGift ? `<button class="btn small ins-gift" data-id="${own!.id}">🎁 Mandar pra ${esc(mate!.name)}</button>` : ''}
     ${gone ? '<div class="ins-gone">fora de combate</div>' : ''}
     ${bars}
     <div class="ins-tip">${unitTipHtml(info)}</div>

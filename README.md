@@ -74,6 +74,12 @@ O container tem verificação de saúde em `/health`. Se a conexão cair, o jogo
 - **Arenas**: escolha o cenário no perfil (Ilha da Brisa, Vulcão da Brasa, Geleira Mentolada e outras liberadas por conquistas).
 - **★★★ de custo alto**: custo 4 ★★★ vira *Monstro da Brisa* (muito mais vida, dano e mana, recebe menos dano) e custo 5 ★★★ vira *Divindade Chapada* (mana cheia no início, imune a controle, ataques explodem em volta e cada habilidade solta uma onda divina) e ganha a luta em poucos segundos. Teste de força: `npx tsx scripts/star3test.ts`.
 - **★★★ épico**: ao fechar um ★★★ sobe um pilar de luz dourada com onda de choque, chuva de faíscas, tremida e banner especial.
+- **Modos de jogo** (o anfitrião escolhe no lobby): 🌿 **Normal**; ⚡ **Turbo** (ouro fixo 4/6/9, sem juros, nível sobe sozinho, rolar custa 1, dano ×1.8 e preparação mais curta); 🤝 **Dupla** (2v2, de 4 a 8 jogadores em número par: a dupla divide a vida, luta junta contra outra dupla e pode mandar itens e robôs do banco pro parceiro com botão direito ou pelo painel do robô).
+- **Itens Radiantes**: a 🌟 **Forja Radiante** (Arsenal e PvE tardios, aprimoramento prisma) transforma um item completo na versão Radiante: atributos dobrados, +20% de dano e +200 de vida.
+- **Artefatos**: 8 itens únicos sem receita (Machado do Lenhador, Cajado Crescente, Armadura Zen, Relógio Parado, Chinelo Voador, Terceiro Olho, Disco Voador e Cogumelo Dourado). Caem no Arsenal e PvE do estágio 4 em diante ou no aprimoramento Baú de Artefatos.
+- **Ranque**: cada partida dá ou tira pontos pela colocação (do 🔩 Ferro-Velho ao 👑 Chapado Supremo, divisões IV–I). Fica salvo no navegador e aparece no menu e no perfil, com o histórico mostrando modo e pontos.
+- **Tela final**: mostra o ranque ganho/perdido, o seu time final e o time campeão (no modo Dupla, a classificação por dupla).
+- **Times recomendados**: aba **Times** no Guia com composições montadas a partir das sinergias, com carregador, tanque e itens sugeridos.
 - **Ajudas**: ao arrastar um robô o alcance dele aparece no tabuleiro, e as chances de cada custo na loja ficam embaixo do nível.
 ## Sinergias
 

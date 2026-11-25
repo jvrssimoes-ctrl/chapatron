@@ -7,6 +7,7 @@ import { ALL_COMPONENTS, ITEMS, boardCap, combine, statsText } from '../../share
 import { computeTraits, emblemBonus, mergeBonus, unitTraits } from '../../shared/traits';
 import { PORTALS, interestCap, rerollCost } from '../../shared/portals';
 import { recommendedItems, rolesForItem } from '../../shared/recommend';
+import { MODES, TEAM_COLORS } from '../../shared/modes';
 import type { TraitId } from '../../shared/types';
 import type { HoverInfo } from './three/scene';
 import { net } from './net';
@@ -33,6 +34,7 @@ let lastTraitsKey = '';
 let lastPlayersKey = '';
 let lastLevel = 0;
 let lastBenchKey = '';
+let lastTurbo = false;
 
 /** Bolinhas das rodadas do estágio atual (⚔ PvP, 🤖 PvE, 🎠 carrossel, 🎁 arsenal, ✨ aprimoramento). */
 function stageDots(round: number) {
@@ -140,8 +142,8 @@ export function itemTipHtml(id: string) {
     <div class="tt-ab">${esc(it.desc)}</div><div class="tt-hint">Some depois de usar.</div>`;
   }
   const have = myComponents();
-  const kind = it.component ? (id === 'colher' ? 'componente raro' : 'componente') : it.emblem ? 'emblema' : 'item completo';
-  const head = `<div class="tt-head tt-item" style="border-color:${it.component ? '#9aa3ad' : it.emblem ? '#ff9de2' : '#ffd23f'}">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>${kind}</small></div>`;
+  const kind = it.component ? (id === 'colher' ? 'componente raro' : 'componente') : it.emblem ? 'emblema' : it.radiant ? '✦ RADIANTE' : it.artifact ? '◆ ARTEFATO' : 'item completo';
+  const head = `<div class="tt-head tt-item" style="border-color:${it.component ? '#9aa3ad' : it.emblem ? '#ff9de2' : it.radiant ? '#ff7ad9' : it.artifact ? '#ff8a3d' : '#ffd23f'}">${itemImg(id, 'ii big')}<b>${esc(it.name)}</b><small>${kind}</small></div>`;
   if (it.component) {
     const stats = statsText(it.stats);
     const rows = ALL_COMPONENTS.map((c) => {
@@ -160,7 +162,7 @@ export function itemTipHtml(id: string) {
       <div class="tt-hint">Arraste até um robô. Dois componentes no mesmo robô viram um item completo.</div>`;
   }
   const stats = statsText(it.stats);
-  const roles = it.emblem ? [] : rolesForItem(id);
+  const roles = it.emblem ? [] : rolesForItem(it.radiant ?? id);
   const recipe = it.recipe
     ? `<div class="tt-recipe">Receita: ${it.recipe.map((c) => `${itemImg(c)} ${esc(ITEMS[c].name)}`).join(' <i>+</i> ')}${canBuild(id, have) ? ' <em class="ok">✔ você tem</em>' : ''}</div>` : '';
   return `${head}
@@ -168,7 +170,7 @@ export function itemTipHtml(id: string) {
     <div class="tt-ab">${it.emblem ? `${traitImg(it.emblem, TRAITS[it.emblem].color)} ` : ''}${esc(it.desc)}</div>
     ${roles.length ? `<div class="tt-good">Bom em: ${roles.map((r) => `<span style="color:${ROLES[r].color}">${roleImg(r, ROLES[r].color)} ${ROLES[r].name}</span>`).join(' ')}</div>` : ''}
     ${recipe}
-    <div class="tt-hint">Arraste até um robô para equipar.</div>`;
+    <div class="tt-hint">${it.artifact ? 'Artefato: item único, não tem receita. ' : it.radiant ? 'Versão turbinada de ' + esc(ITEMS[it.radiant].name) + '. ' : ''}Arraste até um robô para equipar.</div>`;
 }
 
 /** Bloco "Itens recomendados" para a dica do robô. */
@@ -302,10 +304,19 @@ function initItemsAndChoices(hooks: HudHooks) {
     if (drag) return;
     const slot = (e.target as HTMLElement).closest('.islot.full') as HTMLElement | null;
     const id = slot ? store.state?.me.itemBench[Number(slot.dataset.i)] : null;
-    if (id) showTip(itemTipHtml(id), e.clientX, e.clientY);
+    if (id) showTip(itemTipHtml(id) + (store.state?.mode === 'dupla' ? '<div class="tt-hint">🤝 Botão direito: mandar pra sua dupla.</div>' : ''), e.clientX, e.clientY);
     else hideTip();
   });
   bench.addEventListener('mouseleave', hideTip);
+  // modo Dupla: botão direito num item manda pra dupla
+  bench.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const slot = (e.target as HTMLElement).closest('.islot.full') as HTMLElement | null;
+    if (!slot || store.state?.mode !== 'dupla') return;
+    net.send({ t: 'gift', item: Number(slot.dataset.i) });
+    sfx('click');
+    hideTip();
+  });
 
   // ---- aprimoramentos no topo ----
   $('augs').addEventListener('mousemove', (e) => {
@@ -528,7 +539,7 @@ export function renderHud() {
   }
   const cap = interestCap(s.portal, me.augments.includes('juroscomp'));
   $('interest').innerHTML = Array.from({ length: cap }, (_, i) => `<i class="${i < Math.min(cap, Math.floor(me.gold / 10)) ? 'on' : ''}"></i>`).join('');
-  $('rerollBtn').innerHTML = me.freeRerolls > 0 ? `🔄 Rolar <b>GRÁTIS</b> <kbd>D</kbd>` : `🔄 Rolar <b>${rerollCost(s.portal)}💰</b> <kbd>D</kbd>`;
+  $('rerollBtn').innerHTML = me.freeRerolls > 0 ? `🔄 Rolar <b>GRÁTIS</b> <kbd>D</kbd>` : `🔄 Rolar <b>${rerollCost(s.portal, s.mode)}💰</b> <kbd>D</kbd>`;
   $('levelLabel').textContent = `Nível ${me.level}`;
   $('xpLabel').textContent = me.level >= MAX_LEVEL ? 'MÁX' : `${me.xp}/${me.xpNeeded}`;
   $('xpFill').style.width = me.level >= MAX_LEVEL ? '100%' : `${(100 * me.xp) / Math.max(1, me.xpNeeded)}%`;
@@ -541,8 +552,22 @@ export function renderHud() {
   $('odds').innerHTML = odds.map((o, i) => o > 0 ? `<span style="color:${COST_COLORS[i + 1]}"><i style="background:${COST_COLORS[i + 1]}"></i>${o}%</span>` : '').join('');
   const streak = $('streak');
   streak.textContent = me.streak >= 2 ? `🔥 ${me.streak}` : me.streak <= -2 ? `🧊 ${-me.streak}` : '';
-  ($('xpBtn') as HTMLButtonElement).disabled = me.gold < XP_COST || me.level >= MAX_LEVEL || !me.alive;
-  ($('rerollBtn') as HTMLButtonElement).disabled = (me.gold < rerollCost(s.portal) && me.freeRerolls <= 0) || !me.alive;
+  const turbo = s.mode === 'turbo';
+  ($('xpBtn') as HTMLButtonElement).disabled = turbo || me.gold < XP_COST || me.level >= MAX_LEVEL || !me.alive;
+  if (turbo !== lastTurbo) {
+    lastTurbo = turbo;
+    $('xpBtn').innerHTML = turbo ? '⚡ Nível automático' : `⬆️ Comprar XP <b>${XP_COST}💰</b> <kbd>F</kbd>`;
+    $('xpBtn').title = turbo ? 'Modo Turbo: o nível sobe sozinho a cada estágio' : '';
+  }
+  const mc = $('modeChip');
+  mc.classList.toggle('hidden', s.mode === 'normal');
+  if (s.mode !== 'normal') {
+    const md = MODES[s.mode];
+    mc.style.setProperty('--mc', md.color);
+    mc.textContent = `${md.icon} ${md.name}`;
+    mc.title = md.desc;
+  }
+  ($('rerollBtn') as HTMLButtonElement).disabled = (me.gold < rerollCost(s.portal, s.mode) && me.freeRerolls <= 0) || !me.alive;
   $('lockBtn').textContent = me.locked ? '🔒' : '🔓';
   $('lockBtn').classList.toggle('on', me.locked);
   const ready = $('readyBtn');
@@ -604,7 +629,8 @@ export function renderHud() {
 
   // jogadores
   const players = [...s.players].sort((a, b) => Number(b.alive) - Number(a.alive) || b.hp - a.hp || a.place - b.place);
-  const pKey = JSON.stringify(players.map((p) => [p.id, p.hp, p.level, p.alive, p.connected, p.streak])) + store.scoutId + s.opponentId + s.phase;
+  const myTeam = s.players.find((p) => p.id === store.youId)?.team ?? -1;
+  const pKey = JSON.stringify(players.map((p) => [p.id, p.hp, p.level, p.alive, p.connected, p.streak, p.team])) + store.scoutId + s.opponentId + s.phase;
   if (pKey !== lastPlayersKey) {
     lastPlayersKey = pKey;
     $('players').innerHTML = players.map((p, rank) => {
@@ -614,12 +640,14 @@ export function renderHud() {
         p.id === store.scoutId ? 'scouted' : '',
         s.phase === 'combat' && p.id === s.opponentId ? 'opp' : '',
         !p.connected ? 'offline' : '',
+        myTeam >= 0 && p.team === myTeam && p.id !== store.youId ? 'mate' : '',
       ].join(' ');
       const st = p.streak >= 2 ? `🔥${p.streak}` : p.streak <= -2 ? `🧊${-p.streak}` : '';
-      return `<div class="prow ${cls}" data-id="${p.id}" title="Clique para espiar o tabuleiro">
+      const tdot = p.team >= 0 ? `<i class="pteam" title="Dupla ${p.team + 1}"></i>` : '';
+      return `<div class="prow ${cls}" data-id="${p.id}" style="--tc:${p.team >= 0 ? TEAM_COLORS[p.team] : 'transparent'}" title="${myTeam >= 0 && p.team === myTeam && p.id !== store.youId ? 'Sua dupla! ' : ''}Clique para espiar o tabuleiro">
         <div class="prank">${p.alive ? rank + 1 : '💀'}</div>
         <div class="pmain">
-          <div class="pname">${esc(p.name)}${p.id === store.youId ? ' (você)' : ''}${!p.connected ? ' 📴' : ''}</div>
+          <div class="pname">${tdot}${esc(p.name)}${p.id === store.youId ? ' (você)' : ''}${!p.connected ? ' 📴' : ''}</div>
           <div class="pinfo"><span>Nv ${p.level}</span><span>${st}</span><span>${p.alive ? `❤️ ${p.hp}` : `${p.place}º`}</span></div>
           <div class="php"><div style="width:${Math.max(0, p.hp)}%"></div></div>
         </div>

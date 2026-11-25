@@ -11,6 +11,7 @@ import { oldBotChoose, oldBotPlan } from './oldbot';
 const games = Number(process.argv[2] ?? 5);
 const AB = process.argv.includes('--ab');
 const QUIET = process.argv.includes('--quiet');
+const MODE = (process.argv.find((a) => a.startsWith('--mode='))?.slice(7) ?? 'normal') as 'normal' | 'turbo' | 'dupla';
 
 let totalRounds = 0;
 const durs: Record<string, number[]> = { pve: [], pvp: [] };
@@ -30,6 +31,8 @@ for (let g = 0; g < games; g++) {
   const room = new Room('TEST', () => {});
   room.setTimer = () => {};
   for (let i = 0; i < 8; i++) room.players.push(new Player(`p${i}`, '', `Bot${i}`, true));
+  room.mode = MODE;
+  if (MODE === 'dupla') room.assignTeams(true);
   room.startGame();
   room.finishPortal(true);
   // carrossel: no simulador cada bot pega o robô que escolheria

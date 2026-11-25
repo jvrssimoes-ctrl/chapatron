@@ -19,5 +19,7 @@ portal('colheres', 'Chuva de Colheres', '🥄', '#ff5d73', 'Todo mundo ganha uma
 
 export const PORTAL_IDS = Object.keys(PORTALS);
 
-export const rerollCost = (portal: string | null | undefined) => (portal === 'feira' ? 1 : 2);
+export const rerollCost = (portal: string | null | undefined, mode?: string) => (portal === 'feira' || mode === 'turbo' ? 1 : 2);
+/** portais que não fazem sentido no modo Turbo (sem juros e sem comprar XP) */
+export const TURBO_SKIP_PORTALS = ['feira', 'pilotagem', 'juros'];
 export const interestCap = (portal: string | null | undefined, hasJurosAug: boolean) => (hasJurosAug ? 7 : portal === 'juros' ? 7 : 5);

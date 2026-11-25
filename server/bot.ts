@@ -190,7 +190,7 @@ export function botPlan(room: Room, p: Player) {
 
   let rollTo = Infinity; // ouro mínimo que fica depois das rolagens
   const levelUp = () => {
-    while (p.level < MAX_LEVEL && p.level < target && p.gold >= XP_COST) room.buyXp(p);
+    while (p.level < MAX_LEVEL && p.level < target && p.gold >= XP_COST) if (!room.buyXp(p)) break;
   };
   levelUp();
 
@@ -200,6 +200,8 @@ export function botPlan(room: Room, p: Player) {
     b.rolledAt.add(p.level);
     rollTo = p.level >= 8 ? 10 : 20;
   }
+  // Turbo: sem juros, então gasta quase tudo rolando
+  if (room.mode === 'turbo') rollTo = Math.min(rollTo, stage <= 2 ? 6 : 2);
   if (p.hp <= 20 && stage >= 3) rollTo = Math.min(rollTo, 0);
   else if (p.hp <= 40 && stage >= 3) rollTo = Math.min(rollTo, 10);
   else if (p.hp <= 60 && stage >= 4) rollTo = Math.min(rollTo, 30);
@@ -210,7 +212,7 @@ export function botPlan(room: Room, p: Player) {
   }
   // nível 9/10 no fim: ouro sobrando vira XP
   if (stage >= 5 && p.level >= 8 && p.gold >= 56 && p.level < MAX_LEVEL && b.style === 'padrao') {
-    while (p.gold >= 54 && p.level < MAX_LEVEL) room.buyXp(p);
+    while (p.gold >= 54 && p.level < MAX_LEVEL) if (!room.buyXp(p)) break;
   }
 
   const reserve = Math.min(reserveFor(room, p), rollTo);
@@ -226,7 +228,7 @@ export function botPlan(room: Room, p: Player) {
 
   // economia: sobrou acima do alvo de juros e falta nível? compra XP
   if (stage >= 3 && p.level < MAX_LEVEL && p.gold >= 58 && b.style === 'padrao') {
-    while (p.gold >= 54 && p.level < MAX_LEVEL) room.buyXp(p);
+    while (p.gold >= 54 && p.level < MAX_LEVEL) if (!room.buyXp(p)) break;
   }
 
   // vende o excesso do banco (mantém pares e foco)
@@ -260,7 +262,7 @@ const AUG_BASE: Record<string, [number, number, number]> = {
   reciclagem: [4.5, 4.5, 4], pazinterior: [5, 6, 6.5], vampiro: [5.5, 6.5, 7], presente: [7, 8.5, 9],
   fortuna: [8.5, 8, 6.5], caixamist: [9, 9, 8.5], brisalend: [8, 9, 10], ascensao: [8, 8, 6.5],
   blindagem: [5, 6, 6.5], kitbasico: [5.5, 5, 4], pancadaria: [5.5, 6.5, 7], colherada: [6.5, 6.5, 6],
-  exercito: [9, 9.5, 9.5], colherdourada: [8, 8.5, 8.5],
+  exercito: [9, 9.5, 9.5], colherdourada: [8, 8.5, 8.5], bauartefato: [7, 7.5, 7.5], forjaradiante: [8.5, 9, 9.5],
 };
 
 function compKind(p: Player): 'ad' | 'ap' {
@@ -318,9 +320,17 @@ const AD_ITEMS = new Set(['lancachamas', 'bazuca', 'megaseda', 'mira', 'rede', '
 const AP_ITEMS = new Set(['cachimbogig', 'garrafa', 'luvaarcana', 'coroa', 'morteiro', 'turbo', 'cristal', 'isqueiroplasma', 'maodestino', 'tesoura', 'ionizador', 'lancachamas']);
 const TANK_ITEMS = new Set(['caixadagua', 'cadeado', 'parachoque', 'coracao', 'chapeu', 'abafador', 'tenis', 'marmita', 'tampa', 'facaeletrica', 'manto', 'mochila', 'radio', 'coleteseda', 'caixadesom', 'escudocosmico', 'maleta']);
 
+const ART_AD = new Set(['machado', 'chinelo', 'discovoador']);
+const ART_AP = new Set(['cajado', 'terceiroolho']);
+const ART_TANK = new Set(['armadurazen', 'relogio', 'cogumelodourado']);
 function wantsItem(defId: string, item: string): number {
   const ap = isAP(defId);
   const carry = isCarryRole(defId);
+  if (ITEMS[item]?.radiant) return wantsItem(defId, ITEMS[item].radiant!) + 2.5;
+  if (ITEMS[item]?.artifact) {
+    if (carry) return (ap ? ART_AP : ART_AD).has(item) ? 5.5 : ART_TANK.has(item) ? 1 : 2.5;
+    return ART_TANK.has(item) ? 5.5 : 2;
+  }
   if (isComponent(item)) {
     if (carry) return (ap ? AP_COMP : AD_COMP).has(item) ? 3 : TANK_COMP.has(item) ? 0.5 : 1;
     return TANK_COMP.has(item) ? 3 : 1;
@@ -362,6 +372,7 @@ function itemNeedScore(p: Player, b: Brain, item: string) {
 
 /** Pode receber este item sem estragar (combinação ruim / sem espaço)? Retorna o ganho. */
 function equipGain(u: OwnedUnit, item: string): number {
+  if (item === 'forja') return u.items.some((i) => ITEMS['r_' + i]) ? 5 + UNITS[u.defId].cost * 0.3 : -1;
   if (ITEMS[item]?.special) return item === 'xerox' && UNITS[u.defId].cost <= 4 && u.star < 3 ? 2.5 + UNITS[u.defId].cost * 0.3 : -1;
   if (u.items.includes('maoleve')) return -1;
   if (isComponent(item)) {

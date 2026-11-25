@@ -8,11 +8,12 @@ import { robotPortrait } from './three/portrait';
 import { SKINS, setSkin, skin } from './skins';
 import { ARENAS, arena, setArena } from './arenas';
 import { sfx } from './sfx';
+import { lpDelta, rankBadge, rankOf } from './rank';
 import { store } from './store';
 
 // Perfil local (fica no navegador): estatísticas, histórico, conquistas e skin escolhida.
 
-interface GameRecord { at: number; place: number; players: number; round: number; units: { d: string; s: number }[]; traits: TraitId[] }
+interface GameRecord { at: number; place: number; players: number; round: number; units: { d: string; s: number }[]; traits: TraitId[]; mode?: string; lp?: number }
 interface Profile {
   games: number; wins: number; top4: number;
   places: number[];
@@ -21,10 +22,13 @@ interface Profile {
   stars3: number;
   achievements: Record<string, number>;
   skin: string;
+  /** pontos de ranque e melhor marca */
+  lp: number;
+  peak: number;
 }
 
 const KEY = 'chapatron_profile';
-const blank = (): Profile => ({ games: 0, wins: 0, top4: 0, places: [], history: [], unitPlays: {}, stars3: 0, achievements: {}, skin: 'padrao' });
+const blank = (): Profile => ({ games: 0, wins: 0, top4: 0, places: [], history: [], unitPlays: {}, stars3: 0, achievements: {}, skin: 'padrao', lp: 0, peak: 0 });
 function load(): Profile {
   try { return { ...blank(), ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return blank(); }
 }
@@ -109,14 +113,26 @@ export function trackCombat() {
   if (dmg >= 6000) unlock('dano');
 }
 
-export function trackGameOver(place: number, players: number) {
-  if (!tracking) return;
+export interface RankChange { before: number; after: number; delta: number }
+let lastRank: RankChange | null = null;
+/** Mudança de ranque da última partida (para a tela final). */
+export function lastRankChange() { return lastRank; }
+export function myLp() { return prof.lp; }
+
+/** total = número de jogadores (ou de duplas, no modo Dupla). */
+export function trackGameOver(place: number, players: number, mode = 'normal') {
+  if (!tracking) return lastRank;
   tracking = false;
+  const before = prof.lp;
+  const delta = lpDelta(place, players);
+  prof.lp = Math.max(0, prof.lp + delta);
+  prof.peak = Math.max(prof.peak, prof.lp);
+  lastRank = { before, after: prof.lp, delta: prof.lp - before };
   prof.games++;
   if (place === 1) prof.wins++;
   if (place <= 4) prof.top4++;
   prof.places = [...prof.places, place].slice(-50);
-  prof.history = [{ at: Date.now(), place, players, round: store.state?.round ?? 0, units: lastBoard, traits: lastTraits }, ...prof.history].slice(0, 15);
+  prof.history = [{ at: Date.now(), place, players, round: store.state?.round ?? 0, units: lastBoard, traits: lastTraits, mode, lp: lastRank.delta }, ...prof.history].slice(0, 15);
   for (const u of new Set(lastBoard.map((x) => x.d))) prof.unitPlays[u] = (prof.unitPlays[u] ?? 0) + 1;
   save();
   unlock('primeira');
@@ -125,6 +141,9 @@ export function trackGameOver(place: number, players: number) {
   if (place <= 4 && minHp <= 10) unlock('porumfio');
   if (prof.games >= 10) unlock('veterano');
   if (Object.keys(prof.unitPlays).length >= 30) unlock('colecionador');
+  const rb = rankOf(before), ra = rankOf(prof.lp);
+  if (ra.index > rb.index) setTimeout(() => { banner(`<span class="bn-stars">${ra.tier.icon}</span><b>${esc(ra.tier.name)}</b><small>Subiu de ranque!</small>`, 'gold', 3600); sfx('levelup'); }, 2200);
+  return lastRank;
 }
 
 // ---------------- tela do perfil ----------------
@@ -158,6 +177,22 @@ export function openProfile() {
   sfx('click');
 }
 
+function rankBox() {
+  const r = rankOf(prof.lp);
+  const next = TIERS_NEXT(prof.lp);
+  return `<div class="pf-rank" style="--rc:${r.tier.color}">
+    <div class="pf-rank-ic">${r.tier.icon}</div>
+    <div class="pf-rank-main"><small>Ranque</small><b>${esc(r.label)}</b>
+      <div class="pf-rank-bar"><i style="width:${r.top ? 100 : r.pts}%"></i></div>
+      <small>${r.top ? `${r.pts} pontos` : `${r.pts}/100 pontos` }${next ? ` · próximo: ${esc(next)}` : ''} · melhor: ${esc(rankOf(prof.peak).label)}</small></div>
+  </div>`;
+}
+function TIERS_NEXT(lp: number) {
+  const r = rankOf(lp);
+  if (r.top) return '';
+  return r.div === 'I' ? rankOf(r.tier.min + 400).tier.name : `${r.tier.name} ${['IV', 'III', 'II', 'I'][['IV', 'III', 'II', 'I'].indexOf(r.div) + 1]}`;
+}
+
 function render() {
   if (!root) return;
   const avg = prof.places.length ? (prof.places.reduce((a, b) => a + b, 0) / prof.places.length).toFixed(2) : '—';
@@ -171,6 +206,7 @@ function render() {
   root.innerHTML = `<div class="gd-box pf-box">
     <div class="gd-head"><h2>🏅 Seu Perfil</h2><span class="pf-sub">salvo neste navegador</span><button class="gd-close btn small ghost" title="Fechar (Esc)">✖</button></div>
     <div class="gd-body">
+      ${rankBox()}
       <div class="pf-stats">
         <div><b>${prof.games}</b><span>partidas</span></div>
         <div><b>${prof.wins}</b><span>vitórias · ${pct(prof.wins)}</span></div>
@@ -211,7 +247,7 @@ function render() {
         <b class="pf-place">${h.place}º</b>
         <div class="pf-gunits">${h.units.slice(0, 9).map((u) => { const d = UNITS[u.d]; return d ? `<img src="${robotPortrait(u.d, d.look)}" style="--cc:${COST_COLORS[d.cost]}" title="${esc(d.name)} ${'★'.repeat(u.s)}" alt="">` : ''; }).join('')}</div>
         <div class="pf-gtraits">${h.traits.map((t) => TRAITS[t] ? traitImg(t, TRAITS[t].color) : '').join('')}</div>
-        <small>${h.players} jogadores · ${ago(h.at)}</small>
+        <small>${h.players} ${h.mode === 'dupla' ? 'duplas' : 'jogadores'}${h.mode && h.mode !== 'normal' ? ` · ${h.mode === 'turbo' ? '⚡ Turbo' : '🤝 Dupla'}` : ''} · ${ago(h.at)}${h.lp !== undefined ? ` · <b class="${h.lp >= 0 ? 'lp-up' : 'lp-down'}">${h.lp >= 0 ? '+' : ''}${h.lp}</b>` : ''}</small>
       </div>`).join('')}</div>` : '<p class="gd-hint">Jogue uma partida para começar seu histórico.</p>'}
     </div></div>`;
 }

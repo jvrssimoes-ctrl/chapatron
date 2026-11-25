@@ -6,11 +6,12 @@ import {
 } from '../shared/data';
 import { AUGMENTS, augmentPool, traitBonus } from '../shared/augments';
 import { computeTraits, emblemBonus, mergeBonus } from '../shared/traits';
-import { COMPLETED, COMPONENTS, EMBLEMS, ITEMS, SPECIALS, boardCap, combine, emblemAllowed, isComponent, isEmblem, isSpecial, itemSlots } from '../shared/items';
+import { ARTIFACTS, COMPLETED, COMPONENTS, EMBLEMS, ITEMS, RADIANTS, SPECIALS, boardCap, combine, emblemAllowed, isArtifact, isComponent, isEmblem, isRadiant, isSpecial, itemSlots } from '../shared/items';
 import { BENCH_SIZE, BOARD_ROWS, COLS } from '../shared/hex';
-import type { AugTier, CarouselUnit, Choice, ClientMsg, CombatResult, Loc, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
+import type { AugTier, BoardPreviewUnit, CarouselUnit, Choice, ClientMsg, CombatResult, GameMode, Loc, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
+import { MODES, modeDamageMult, modePlanningMult, turboIncome, turboLevel } from '../shared/modes';
 import { simulate, type SideInput } from './combat';
-import { PORTALS, PORTAL_IDS, interestCap, rerollCost } from '../shared/portals';
+import { PORTALS, PORTAL_IDS, TURBO_SKIP_PORTALS, interestCap, rerollCost } from '../shared/portals';
 import { botChoose, botPlan } from './bot';
 
 const MAX_PLAYERS = 8;
@@ -40,6 +41,7 @@ const randomComponent = () => pick(COMPONENTS);
 const randomCompleted = () => pick(COMPLETED.filter((i) => i !== 'maoleve'));
 const randomSpecial = () => pick(SPECIALS);
 const randomEmblem = () => pick(EMBLEMS);
+const randomArtifact = () => pick(ARTIFACTS);
 
 export class Player {
   ws: WebSocket | null = null;
@@ -63,6 +65,10 @@ export class Player {
   lastOpp: string | null = null;
   avatar = '';
   opponentId: string | null = null;
+  /** modo Dupla: índice da dupla (-1 = sem dupla) */
+  team = -1;
+  /** tabuleiro no momento em que saiu (para a tela final) */
+  finalBoard: BoardPreviewUnit[] = [];
 
   constructor(public id: string, public token: string, public name: string, public isBot: boolean) {}
 
@@ -116,6 +122,7 @@ export class Room {
   augTiers: AugTier[] = [];
   /** regra especial da partida (votada no começo) */
   portal: string | null = null;
+  mode: GameMode = 'normal';
   portalVote: { options: string[]; votes: Map<string, number>; end: number } | null = null;
   private playerCounter = 1;
 
@@ -193,7 +200,8 @@ export class Room {
   broadcastLobby() {
     const msg: ServerMsg = {
       t: 'lobby', room: this.code, hostId: this.hostId,
-      players: this.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, connected: p.connected, avatar: p.avatar })),
+      players: this.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, connected: p.connected, avatar: p.avatar, team: this.mode === 'dupla' ? p.team : -1 })),
+      mode: this.mode,
     };
     for (const p of this.players) p.send(msg);
   }
@@ -217,6 +225,7 @@ export class Room {
           const bot = new Player(`p${this.playerCounter++}`, '', `🤖 ${name}`, true);
           bot.avatar = `${pick(['nuvem', 'cogumelo', 'robozinho', 'geleca'])}:${Math.floor(Math.random() * 8)}`;
           this.players.push(bot);
+          if (this.mode === 'dupla') this.assignTeams();
         }
         this.broadcastLobby();
         return;
@@ -235,6 +244,10 @@ export class Room {
       case 'start':
         if (!isHost || this.phase !== 'lobby') return;
         if (this.players.length < 2) return this.toast(p, 'Precisa de pelo menos 2 jogadores (adicione bots!).');
+        if (this.mode === 'dupla') {
+          if (this.players.length % 2 === 1 || this.players.length < 4) return this.toast(p, 'O modo Dupla precisa de 4, 6 ou 8 jogadores (adicione bots!).');
+          this.assignTeams(true);
+        }
         this.startGame();
         return;
       case 'restart':
@@ -244,6 +257,21 @@ export class Room {
         this.reassignHost();
         this.broadcastLobby();
         return;
+      case 'mode':
+        if (!isHost || this.phase !== 'lobby' || !MODES[msg.mode]) return;
+        this.mode = msg.mode;
+        if (this.mode === 'dupla') this.assignTeams();
+        this.broadcastLobby();
+        return;
+      case 'team': {
+        if (this.phase !== 'lobby' || this.mode !== 'dupla') return;
+        const team = Math.floor(Number(msg.team));
+        if (!(team >= 0 && team < 4) || team === p.team) return;
+        if (this.players.filter((x) => x.team === team).length >= 2) return this.toast(p, 'Essa dupla já está completa.');
+        p.team = team;
+        this.broadcastLobby();
+        return;
+      }
       case 'chat': {
         const text = String(msg.msg ?? '').slice(0, 200).trim();
         if (!text) return;
@@ -281,6 +309,7 @@ export class Room {
       case 'equip': ok = this.equip(p, msg.item, msg.unitId); break;
       case 'choose': ok = this.choose(p, msg.i); break;
       case 'rerollChoice': ok = this.rerollChoice(p, msg.i); break;
+      case 'gift': ok = this.gift(p, msg.item, msg.unitId); if (ok) { const m = this.mateOf(p); if (m) this.sendState(m); } break;
       case 'reroll': ok = this.reroll(p); break;
       case 'xp': ok = this.buyXp(p); break;
       case 'lock': p.locked = !p.locked; break;
@@ -474,7 +503,7 @@ export class Room {
     const item = p.itemBench[index];
     const name = UNITS[u.defId].name;
     if (item === 'pedecabra' || item === 'reforjador') {
-      if (!u.items.length) { this.toast(p, ` não tem itens.`); return false; }
+      if (!u.items.length) { this.toast(p, `${name} não tem itens.`); return false; }
     }
     if (item === 'pedecabra') {
       if (p.itemBench.length - 1 + u.items.length > ITEM_BENCH_MAX) { this.toast(p, 'Banco de itens lotado.'); return false; }
@@ -491,9 +520,19 @@ export class Room {
         if (it === 'chapeucuca') return it;
         if (isEmblem(it)) return pick(EMBLEMS.filter((e) => e !== it && emblemAllowed(UNITS[u.defId].traits, [], e)));
         if (isComponent(it)) return pick(COMPONENTS.filter((c) => c !== it));
+        if (isRadiant(it)) return pick(RADIANTS.filter((c) => c !== it));
+        if (isArtifact(it)) return pick(ARTIFACTS.filter((c) => c !== it));
         return pick(COMPLETED.filter((c) => c !== it && c !== 'maoleve'));
       });
       this.toast(p, `🔨 Reforjado: ${u.items.map((i) => ITEMS[i].icon + ' ' + ITEMS[i].name).join(', ')}`, 'good');
+      return true;
+    }
+    if (item === 'forja') {
+      const k = u.items.findIndex((it) => ITEMS['r_' + it]);
+      if (k < 0) { this.toast(p, `${name} não tem item completo que vire Radiante.`); return false; }
+      p.itemBench.splice(index, 1);
+      u.items[k] = 'r_' + u.items[k];
+      this.toast(p, `🌟 ${ITEMS[u.items[k]].name}!`, 'good');
       return true;
     }
     if (item === 'xerox') {
@@ -534,6 +573,8 @@ export class Room {
       case 'kitbasico': p.giveItems([randomComponent()]); p.gold += 4; break;
       case 'colherada': p.giveItems(['colher', randomComponent()]); break;
       case 'colherdourada': p.giveItems(['colher', 'colher']); break;
+      case 'bauartefato': p.giveItems([randomArtifact()]); break;
+      case 'forjaradiante': p.giveItems(['forja', randomCompleted()]); break;
       case 'presente': {
         const opts = SHOP_UNITS.filter((d) => d.cost === 5 && (this.pool[d.id] ?? 0) > 0);
         const d = opts[Math.floor(Math.random() * opts.length)];
@@ -554,7 +595,7 @@ export class Room {
     if (p.freeRerolls > 0) {
       p.freeRerolls--;
     } else {
-      const cost = rerollCost(this.portal);
+      const cost = rerollCost(this.portal, this.mode);
       if (p.gold < cost) { this.toast(p, 'Sem grana pra rolar.'); return false; }
       p.gold -= cost;
     }
@@ -564,6 +605,7 @@ export class Room {
 
   buyXp(p: Player): boolean {
     if (p.level >= MAX_LEVEL) return false;
+    if (this.mode === 'turbo') { if (!p.isBot) this.toast(p, 'No Turbo o nível sobe sozinho a cada estágio.'); return false; }
     if (p.gold < XP_COST) { this.toast(p, 'Sem grana pra XP.'); return false; }
     p.gold -= XP_COST;
     p.addXp(XP_PER_BUY + (this.portal === 'pilotagem' ? 2 : 0));
@@ -613,9 +655,86 @@ export class Room {
       return { kind: 'armory', title: 'Arsenal: escolha um componente', options: opts };
     }
     const opts = COMPLETED.filter((i) => i !== 'maoleve').sort(() => Math.random() - 0.5).slice(0, 3);
-    if (Math.random() < 0.35) opts[2] = randomSpecial();
-    else if (Math.random() < 0.2) opts[2] = randomEmblem();
+    const r = Math.random();
+    if (stage >= 5 && r < 0.15) opts[2] = 'forja';
+    else if (r < 0.4) opts[2] = randomArtifact();
+    else if (r < 0.65) opts[2] = randomSpecial();
+    else if (r < 0.8) opts[2] = randomEmblem();
     return { kind: 'armory', title: 'Arsenal: escolha um item completo', options: opts };
+  }
+
+  // ================= modo Dupla =================
+
+  /** Distribui os jogadores em duplas (mantém quem já escolheu, se couber). */
+  assignTeams(strict = false) {
+    const count = (t: number) => this.players.filter((x) => x.team === t).length;
+    const nTeams = 4;
+    for (const p of this.players) if (!(p.team >= 0 && p.team < nTeams)) p.team = -1;
+    // duplas com mais de 2 (não deveria acontecer): solta os excedentes
+    for (let t = 0; t < nTeams; t++) {
+      const m = this.players.filter((x) => x.team === t);
+      for (const x of m.slice(2)) x.team = -1;
+    }
+    if (strict) {
+      // ninguém sozinho: junta os solitários entre si
+      const solos = Array.from({ length: nTeams }, (_, t) => t).filter((t) => count(t) === 1);
+      for (let i = 0; i + 1 < solos.length; i += 2) {
+        const mover = this.players.find((x) => x.team === solos[i + 1])!;
+        mover.team = solos[i];
+      }
+    }
+    for (const p of this.players) {
+      if (p.team >= 0) continue;
+      let t = Array.from({ length: nTeams }, (_, k) => k).find((k) => count(k) === 1);
+      if (t === undefined) t = Array.from({ length: nTeams }, (_, k) => k).find((k) => count(k) === 0);
+      p.team = t ?? 0;
+    }
+  }
+
+  isDupla() { return this.mode === 'dupla'; }
+  /** Parceiro de dupla (vivo ou não). */
+  mateOf(p: Player): Player | null {
+    if (!this.isDupla()) return null;
+    return this.players.find((x) => x !== p && x.team === p.team) ?? null;
+  }
+
+  /** Tira vida do jogador — no modo Dupla, a vida é da dupla inteira. */
+  hurt(p: Player, dmg: number) {
+    p.hp -= dmg;
+    const m = this.mateOf(p);
+    if (m) m.hp = p.hp;
+  }
+
+  /** Dupla: manda um item do banco de itens ou um robô do banco pro parceiro. */
+  gift(p: Player, itemIdx?: number, unitId?: string): boolean {
+    const m = this.mateOf(p);
+    if (!m || !m.alive) { this.toast(p, 'Você não tem dupla pra mandar presente.'); return false; }
+    if (itemIdx !== undefined) {
+      const item = p.itemBench[itemIdx | 0];
+      if (!item) return false;
+      if (m.itemBench.length >= ITEM_BENCH_MAX) { this.toast(p, `O banco de itens de ${m.name} está lotado.`); return false; }
+      p.itemBench.splice(itemIdx | 0, 1);
+      m.itemBench.push(item);
+      this.toast(p, `🎁 ${ITEMS[item].icon} ${ITEMS[item].name} enviado pra ${m.name}!`, 'good');
+      this.toast(m, `🎁 ${p.name} te mandou ${ITEMS[item].icon} ${ITEMS[item].name}!`, 'good');
+      return true;
+    }
+    if (unitId) {
+      const u = p.units.find((x) => x.id === unitId);
+      if (!u) return false;
+      if (u.loc.zone === 'board' && this.phase === 'combat') { this.toast(p, 'Espera o combate acabar.'); return false; }
+      const slot = m.freeBenchSlot();
+      if (slot < 0) { this.toast(p, `O banco de ${m.name} está lotado.`); return false; }
+      p.units = p.units.filter((x) => x !== u);
+      u.loc = { zone: 'bench', i: slot };
+      m.units.push(u);
+      this.tryMerge(m);
+      const nm = UNITS[u.defId].name;
+      this.toast(p, `🎁 ${nm} ${'★'.repeat(u.star)} enviado pra ${m.name}!`, 'good');
+      this.toast(m, `🎁 ${p.name} te mandou ${nm} ${'★'.repeat(u.star)}!`, 'good');
+      return true;
+    }
+    return false;
   }
 
   // ================= fluxo do jogo =================
@@ -635,8 +754,9 @@ export class Room {
       Object.assign(p, {
         hp: START_HP, gold: 0, level: 1, xp: 0, shop: [], units: [], locked: false,
         itemBench: [], augments: [], choice: null, freeRerolls: 0,
-        streak: 0, alive: true, place: 0, ready: false, lastOpp: null, opponentId: null,
+        streak: 0, alive: true, place: 0, ready: false, lastOpp: null, opponentId: null, finalBoard: [],
       });
+      if (this.mode !== 'dupla') p.team = -1;
     }
     this.round = 0;
     this.portal = null;
@@ -646,7 +766,7 @@ export class Room {
   // ================= portal (regra da partida) =================
 
   startPortalVote() {
-    const options = [...PORTAL_IDS].sort(() => Math.random() - 0.5).slice(0, 3);
+    const options = PORTAL_IDS.filter((id) => this.mode !== 'turbo' || !TURBO_SKIP_PORTALS.includes(id)).sort(() => Math.random() - 0.5).slice(0, 3);
     const dur = 15000;
     this.portalVote = { options, votes: new Map(), end: Date.now() + dur };
     this.phase = 'portal';
@@ -893,14 +1013,21 @@ export class Room {
       p.ready = false;
       p.opponentId = null;
       // renda (igual TFT): base + juros + sequência
-      const base = this.round === 1 ? 2 : this.round === 2 ? 2 : this.round === 3 ? 3 : this.round === 4 ? 4 : 5;
-      const cap = interestCap(this.portal, p.hasAug('juroscomp'));
-      const interest = this.round === 1 ? 0 : Math.min(cap, Math.floor(p.gold / 10));
-      const s = Math.abs(p.streak);
-      const streakBonus = s >= 6 ? 3 : s >= 5 ? 2 : s >= 3 ? 1 : 0;
-      p.gold += base + interest + (this.isPve(this.round - 1) ? 0 : streakBonus) + (this.portal === 'chuva' ? 1 : 0);
+      if (this.mode === 'turbo') {
+        // Turbo: renda fixa, sem juros/sequência; o nível acompanha o estágio
+        p.gold += turboIncome(this.round) + (this.portal === 'chuva' ? 1 : 0);
+        p.level = Math.max(p.level, turboLevel(stageOf(this.round).stage, this.round));
+        p.xp = 0;
+      } else {
+        const base = this.round === 1 ? 2 : this.round === 2 ? 2 : this.round === 3 ? 3 : this.round === 4 ? 4 : 5;
+        const cap = interestCap(this.portal, p.hasAug('juroscomp'));
+        const interest = this.round === 1 ? 0 : Math.min(cap, Math.floor(p.gold / 10));
+        const s = Math.abs(p.streak);
+        const streakBonus = s >= 6 ? 3 : s >= 5 ? 2 : s >= 3 ? 1 : 0;
+        p.gold += base + interest + (this.isPve(this.round - 1) ? 0 : streakBonus) + (this.portal === 'chuva' ? 1 : 0);
+      }
       if (this.portal === 'colheres' && label === '3-1') { p.giveItems(['colher']); if (!p.isBot) this.toast(p, '🥄 Chuva de Colheres: mais uma Colher de Pau!', 'good'); }
-      p.addXp(2 + (p.hasAug('xpturbo') ? 2 : 0));
+      if (this.mode !== 'turbo') p.addXp(2 + (p.hasAug('xpturbo') ? 2 : 0));
       p.freeRerolls = p.hasAug('rolagratis') ? 1 : 0;
       if (!p.locked || p.shop.length === 0) this.rollShop(p);
       p.locked = false;
@@ -910,7 +1037,7 @@ export class Room {
       if (augIdx >= 0 && isAugmentRound(this.round)) { p.choice = this.makeAugmentChoice(p, this.augTiers[augIdx]); hasChoice = true; }
       else if (isArmoryRound(this.round)) { p.choice = this.makeArmoryChoice(); hasChoice = true; }
     }
-    const dur = (this.round === 1 ? FIRST_PLANNING_MS : PLANNING_MS) + (hasChoice ? CHOICE_EXTRA_MS : 0);
+    const dur = Math.round(((this.round === 1 ? FIRST_PLANNING_MS : PLANNING_MS) + (hasChoice ? CHOICE_EXTRA_MS : 0)) * modePlanningMult(this.mode));
     this.endsAt = Date.now() + dur;
     this.phaseTotal = dur;
     this.setTimer(dur, () => this.startCombat());
@@ -981,6 +1108,7 @@ export class Room {
   }
 
   makePairs(): { a: Player; b: Player | null; ghost: boolean }[] {
+    if (this.isDupla()) return this.makeTeamPairs();
     const alive = this.alive();
     let best: Player[] = [];
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -997,6 +1125,39 @@ export class Room {
       const others = alive.filter((x) => x !== solo);
       const ghost = others[Math.floor(Math.random() * others.length)];
       pairs.push({ a: solo, b: ghost, ghost: true });
+    }
+    return pairs;
+  }
+
+  /** Dupla: dupla contra dupla; cada um enfrenta um da dupla adversária. */
+  makeTeamPairs(): { a: Player; b: Player | null; ghost: boolean }[] {
+    const alive = this.alive();
+    const teams = [...new Set(alive.map((p) => p.team))];
+    const lastFoe = (t: number) => alive.find((p) => p.team === t)?.lastOpp;
+    const teamOf = (id: string | null | undefined) => this.players.find((x) => x.id === id)?.team;
+    let order = teams;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      order = [...teams].sort(() => Math.random() - 0.5);
+      let repeats = 0;
+      for (let i = 0; i + 1 < order.length; i += 2) if (teamOf(lastFoe(order[i])) === order[i + 1]) repeats++;
+      if (repeats === 0 || teams.length <= 2) break;
+    }
+    const pairs: { a: Player; b: Player | null; ghost: boolean }[] = [];
+    const members = (t: number) => alive.filter((p) => p.team === t).sort(() => Math.random() - 0.5);
+    for (let i = 0; i + 1 < order.length; i += 2) {
+      const A = members(order[i]), B = members(order[i + 1]);
+      for (let k = 0; k < Math.max(A.length, B.length); k++) {
+        const a = A[k] ?? A[0], b = B[k] ?? B[0];
+        // sobrou alguém sem par: luta contra um fantasma
+        if (!A[k]) pairs.push({ a: b, b: a, ghost: true });
+        else if (!B[k]) pairs.push({ a, b, ghost: true });
+        else pairs.push({ a, b, ghost: false });
+      }
+    }
+    if (order.length % 2 === 1) {
+      const solo = order[order.length - 1];
+      const others = alive.filter((x) => x.team !== solo);
+      for (const p of members(solo)) pairs.push({ a: p, b: others[Math.floor(Math.random() * others.length)], ghost: true });
     }
     return pairs;
   }
@@ -1062,6 +1223,8 @@ export class Room {
       if (won && Math.random() < 0.5) loot.push(randomComponent());
     }
     if (stage >= 3 && Math.random() < 0.2) loot.push(randomSpecial());
+    if (stage >= 4 && won && Math.random() < 0.2) loot.push(randomArtifact());
+    if (stage >= 5 && won && Math.random() < 0.12) loot.push('forja');
     if (stage >= 2 && Math.random() < 0.1) loot.push('colher');
     if (this.portal === 'drones') loot.push(randomComponent());
     p.gold += killed;
@@ -1093,7 +1256,7 @@ export class Room {
     const base = stageDamage(this.round);
     const dmgFrom = (side: 0 | 1) =>
       base + res.survivors.filter((s) => s.side === side).reduce((s, x) => s + survivorDamage(x.star, x.cost), 0);
-    const k = this.portal === 'colchao' ? 0.75 : 1;
+    const k = (this.portal === 'colchao' ? 0.75 : 1) * modeDamageMult(this.mode);
     if (pve) return res.winner === 0 ? 0 : Math.max(1, Math.ceil((dmgFrom(1) / 2) * k));
     return Math.max(1, Math.ceil((res.winner === -1 ? base : dmgFrom(res.winner)) * k));
   }
@@ -1105,7 +1268,7 @@ export class Room {
       if (c.pve) {
         const killed = res.units.filter((u) => u.side === 1).length - res.survivors.filter((s) => s.side === 1).length;
         this.pveLoot(c.a, res.winner === 0, killed);
-        if (res.winner !== 0) c.a.hp -= dmg;
+        if (res.winner !== 0) this.hurt(c.a, dmg);
         continue;
       }
       const b = c.b!;
@@ -1124,11 +1287,22 @@ export class Room {
     }
     this.pendingCombats = [];
     const dead = this.alive().filter((p) => p.hp <= 0).sort((a, b) => a.hp - b.hp);
-    let place = this.alive().length;
+    if (this.isDupla()) {
+      // colocação por dupla: as duplas que caíram juntas dividem o lugar pela vida
+      let place = new Set(this.alive().map((p) => p.team)).size;
+      const teams = [...new Set(dead.map((p) => p.team))];
+      for (const t of teams) {
+        for (const p of dead.filter((x) => x.team === t)) p.place = place;
+        place--;
+      }
+    } else {
+      let place = this.alive().length;
+      for (const p of dead) p.place = place--;
+    }
     for (const p of dead) {
       p.alive = false;
       p.hp = 0;
-      p.place = place--;
+      p.finalBoard = this.boardSnapshot(p);
       for (const u of p.units) this.returnToPool(u.defId, Math.pow(3, u.star - 1));
       for (const id of p.shop) if (id) this.returnToPool(id);
       p.units = [];
@@ -1137,14 +1311,15 @@ export class Room {
       for (const x of this.players) this.toast(x, `💀 ${p.name} apagou de vez (${p.place}º lugar)`, 'info');
     }
     const alive = this.alive();
-    if (alive.length <= 1) {
-      if (alive[0]) alive[0].place = 1;
+    const over = this.isDupla() ? new Set(alive.map((p) => p.team)).size <= 1 : alive.length <= 1;
+    if (over) {
+      for (const p of alive) { p.place = 1; p.finalBoard = this.boardSnapshot(p); }
       this.phase = 'gameover';
       if (this.timer) clearTimeout(this.timer);
-      const ranking = [...this.players].sort((a, b) => a.place - b.place)
-        .map((p) => ({ id: p.id, name: p.name, place: p.place, isBot: p.isBot }));
+      const ranking = [...this.players].sort((a, b) => a.place - b.place || a.team - b.team)
+        .map((p) => ({ id: p.id, name: p.name, place: p.place, isBot: p.isBot, team: p.team, board: p.finalBoard, level: p.level }));
       this.broadcastState();
-      for (const p of this.players) p.send({ t: 'gameover', ranking });
+      for (const p of this.players) p.send({ t: 'gameover', ranking, mode: this.mode });
       return;
     }
     this.nextRound();
@@ -1156,7 +1331,7 @@ export class Room {
   }
 
   lose(p: Player, dmg: number) {
-    p.hp -= dmg;
+    this.hurt(p, dmg);
     p.streak = p.streak <= 0 ? p.streak - 1 : -1;
   }
 
@@ -1166,15 +1341,19 @@ export class Room {
     return this.players.map((p) => ({
       id: p.id, name: p.name, hp: p.hp, level: p.level, alive: p.alive, isBot: p.isBot,
       connected: p.connected, streak: p.streak, place: p.place, gold: p.gold, augments: p.augments, avatar: p.avatar,
-      board: p.boardUnits().map((u) => ({ defId: u.defId, star: u.star, items: u.items, r: (u.loc as { r: number }).r, c: (u.loc as { c: number }).c })),
+      board: this.boardSnapshot(p), team: this.isDupla() ? p.team : -1,
     }));
+  }
+
+  boardSnapshot(p: Player): BoardPreviewUnit[] {
+    return p.boardUnits().map((u) => ({ defId: u.defId, star: u.star, items: [...u.items], r: (u.loc as { r: number }).r, c: (u.loc as { c: number }).c }));
   }
 
   sendState(p: Player, pub = this.publicPlayers()) {
     if (p.isBot) return;
     p.send({
       t: 'state', phase: this.phase, round: this.round, endsIn: Math.max(0, this.endsAt - Date.now()),
-      phaseTotal: this.phaseTotal, portal: this.portal,
+      phaseTotal: this.phaseTotal, portal: this.portal, mode: this.mode,
       pve: this.isPve(this.round), hostId: this.hostId, players: pub, opponentId: p.opponentId,
       me: {
         gold: p.gold, level: p.level, xp: p.xp, xpNeeded: p.xpNeeded(), shop: p.shop, units: p.units,

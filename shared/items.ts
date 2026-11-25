@@ -127,8 +127,48 @@ special('pedecabra', 'Pé de Cabra', '🔧', 'Arraste até um robô: arranca tod
 special('reforjador', 'Reforjador da Quebrada', '🔨', 'Arraste até um robô: troca os itens dele por outros aleatórios do mesmo tipo (componente por componente, completo por completo).');
 special('xerox', 'Xerox Clandestino', '📠', 'Arraste até um robô de custo 1 a 4: cria uma cópia ★ dele no banco.');
 
+special('forja', 'Forja Radiante', '🌟', 'Arraste até um robô: transforma o primeiro item completo dele na versão Radiante (atributos dobrados e bônus extra).');
+
 export const SPECIALS = ['pedecabra', 'reforjador', 'xerox'];
 export const isSpecial = (id: string) => !!ITEMS[id]?.special;
+
+// ======================= RADIANTES (itens completos turbinados) =======================
+/** bônus fixo de todo item Radiante, além dos atributos dobrados */
+export const RADIANT_BONUS = { dmg: 0.2, hp: 200 };
+
+export const RADIANTS: string[] = [];
+for (const id of COMPLETED) {
+  if (id === 'maoleve') continue;
+  const base = ITEMS[id];
+  const stats: ItemStats = {};
+  for (const [k, v] of Object.entries(base.stats) as [keyof ItemStats, number][]) stats[k] = v * 2;
+  const rid = `r_${id}`;
+  ITEMS[rid] = {
+    id: rid, name: `${base.name} Radiante`, icon: base.icon, component: false, radiant: id, stats,
+    desc: `${base.desc} RADIANTE: atributos dobrados, +20% de dano e +200 de vida.`,
+  };
+  RADIANTS.push(rid);
+}
+export const isRadiant = (id: string) => !!ITEMS[id]?.radiant;
+/** Id do item "de verdade" para efeitos (Radiante conta como o item base). */
+export const baseItem = (id: string) => ITEMS[id]?.radiant ?? id;
+
+// ======================= ARTEFATOS (únicos, sem receita) =======================
+
+function artifact(id: string, name: string, icon: string, stats: ItemStats, desc: string) {
+  ITEMS[id] = { id, name, icon, component: false, artifact: true, stats, desc };
+}
+artifact('machado', 'Machado do Lenhador', '🪓', { ad: 35, as: 15 }, 'Ataques causam dano verdadeiro extra igual a 4% da vida máxima do alvo.');
+artifact('cajado', 'Cajado Infinito', '🪄', { ap: 40, mana: 15 }, 'Cada vez que usa a habilidade, ganha +12 de Poder de Habilidade (acumula).');
+artifact('armadurazen', 'Armadura Zen', '🧘', { hp: 300, armor: 30, mr: 30 }, 'Fica invulnerável nos primeiros 2,5s do combate.');
+artifact('relogio', 'Relógio Parado', '⏱️', { as: 15, hp: 150 }, 'Uma vez por combate, ao cair para 30% de vida: fica invulnerável por 2s e cura 35% da vida máxima.');
+artifact('chinelo', 'Chinelo da Vó', '🩴', { ad: 25, as: 20 }, 'A cada 4 ataques, atordoa o alvo por 1s.');
+artifact('terceiroolho', 'Terceiro Olho', '👁️', { ap: 20, crit: 25 }, 'Habilidades podem dar crítico e o dano crítico aumenta em 30%.');
+artifact('discovoador', 'Disco Voador de Bolso', '🛸', { hp: 200, ad: 20 }, 'No início do combate, salta para a retaguarda inimiga e ganha escudo de 25% da vida máxima por 4s.');
+artifact('cogumelodourado', 'Cogumelo Dourado', '🍄', { hp: 250, ap: 20 }, 'A cada 3s, cura todos os aliados em 4% da vida máxima deles.');
+
+export const ARTIFACTS = Object.values(ITEMS).filter((i) => i.artifact).map((i) => i.id);
+export const isArtifact = (id: string) => !!ITEMS[id]?.artifact;
 
 const RECIPES = new Map<string, string>();
 for (const it of Object.values(ITEMS)) {
