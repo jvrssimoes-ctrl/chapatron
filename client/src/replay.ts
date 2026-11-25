@@ -363,6 +363,12 @@ export class Replay {
         case 'apagao': { const h = hex(); if (h) { runeAt(h[0], h[1], 700, 3.4, color); novaAt(h[0], h[1], 300, 3, '#2a0a3a', 900); novaAt(h[0], h[1], 300, 2.6, color, 700); } for (const id of tgs) strike(id, 300, color); this.snd('boom', 0, 300); break; }
         case 'buraconegro': { const h = hex(); if (h) { runeAt(h[0], h[1], 1300, 3.2, color); novaAt(h[0], h[1], 0, 2.6, '#140a2a', 1300); slamAt(h[0], h[1], 800, 2.4, color); puffAt(h[0], h[1], 800, true, 1200); } this.snd('whoosh', 0, 200); this.snd('boom', 0, 800); break; }
         case 'marreta': if (tg) { const p = posOf(tg); strike(tg, 300, color); if (p) { slamAt(p[0], p[1], 300, 1.5, color); puffAt(p[0], p[1], 300, true); } } this.snd('slam', 0, 300); break;
+        // chefões
+        case 'enxame': bubble(e.u, 0, '#ffd23f'); pillar(e.u, 0, '#ffd23f'); slamU(e.u, 0, 1.6, '#3d8bff'); text('👑 ENXAME!', '#ffd23f', 1.3, e.u); this.snd('buff', 0); break;
+        case 'torrada': runeAt(u.r, u.c, 700, 1.6, color); for (const id of tgs) proj(id, 150, color, { big: true }); this.snd('cast', 0); break;
+        case 'sugada': runeAt(u.r, u.c, 1100, 3.6, color); novaAt(u.r, u.c, 0, 3.2, '#140a2a', 1100); swirl(e.u, 0, color); slamU(e.u, 750, 2.2, color); text('SSSHHHUUUP!', '#9fe8ff', 1.2, e.u); this.snd('whoosh', 0, 100); this.snd('boom', 0, 750); break;
+        case 'turbilhao': swirl(e.u, 0, color); text('🌀', '#ff5d73', 1.4, e.u); this.snd('whoosh', 0); break;
+        case 'congelar': { const h = hex(); if (h) { runeAt(h[0], h[1], 900, 3.2, color); novaAt(h[0], h[1], 450, 2.8, '#e8f8ff', 900); slamAt(h[0], h[1], 450, 2.4, color); } for (const id of tgs) strike(id, 450, '#e8f8ff'); text('❄️ CONGELA!', '#bfe9ff', 1.3, e.u); this.snd('boom', 0, 450); break; }
         default: if (tg) { const t1 = proj(tg, ranged ? 200 : 80); nova(tg, t1, 0.6); }
       }
       return;
@@ -393,6 +399,7 @@ export class Replay {
       case 'pane': if (tg && tgs[0]) beam(tgs[0], 0, '#3dffb0', tg); break;
       case 'colheita': if (tg) { text('COLHIDO!', '#c4ff9e', 1.2, tg); strike(tg, 0, '#ffffff'); } break;
       case 'bigbang': { const h = hex(); if (h) meteorAt(h[0], h[1], 0, 1); break; }
+      case 'turbilhao': slamU(e.u, 0, 2.3, color); for (const id of tgs) strike(id, 0, color); this.snd('slash', 0); break;
       default: break;
     }
   }

@@ -26,7 +26,9 @@ export type AbilityKind =
   | 'vibracao' | 'bigbang' | 'seiva' | 'festa' | 'apagao'
   // novos robôs
   | 'cupinzeiro' | 'chiclete' | 'fogueira' | 'radinho' | 'raiz' | 'tornado' | 'curto' | 'imantar'
-  | 'espelho' | 'colheita' | 'sirene' | 'buraconegro' | 'marreta' | 'mudinha';
+  | 'espelho' | 'colheita' | 'sirene' | 'buraconegro' | 'marreta' | 'mudinha'
+  // chefões do PvE
+  | 'enxame' | 'torrada' | 'sugada' | 'turbilhao' | 'congelar';
 
 export interface AbilityDef {
   kind: AbilityKind;
@@ -76,6 +78,8 @@ export interface UnitDef {
   pve?: boolean;
   /** invocado durante o combate (não aparece na loja) */
   summon?: boolean;
+  /** chefão do PvE (maior, com apresentação própria) */
+  boss?: { title: string; desc: string; stage: number };
 }
 
 export interface TraitDef {

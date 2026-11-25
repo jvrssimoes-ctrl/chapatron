@@ -1,6 +1,7 @@
 import './style.css';
 import { Scene3D } from './three/scene';
-import { UNITS } from '../../shared/data';
+import { UNITS, bossFor, stageOf } from '../../shared/data';
+import { robotPortrait } from './three/portrait';
 import { MODES, MODE_IDS, TEAM_COLORS } from '../../shared/modes';
 import type { GameMode } from '../../shared/types';
 import { banner, chatLine, esc, hideTip, hpHit, initHud, itemTipHtml, overSell, renderHud, setLeftTab, setSellMode, showTip, tickHud, toast, unitTipHtml } from './hud';
@@ -11,7 +12,8 @@ import { avatarHtml, confetti, gameoverHtml, initMenuFx, initParade } from './sc
 import { closeGuide, isGuideOpen, openGuide, toggleGuide } from './guide';
 import { checkTips } from './tips';
 import { initEmotes, showEmote } from './emotes';
-import { closeProfile, isProfileOpen, myLp, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
+import { closeProfile, isProfileOpen, menuCardHtml, myLp, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
+import { startMenuHero } from './menuHero';
 import { rankBadge } from './rank';
 import { closeInspect, initInspect, inspect, isInspectOpen } from './inspect';
 import { closePicker, isPickerOpen, myLookKey, openPicker } from './avatarPicker';
@@ -49,7 +51,7 @@ function show(s: Screen) {
   $('hud').classList.toggle('hidden', s !== 'game');
   board.active = s === 'game';
   if (s !== 'game') $('gameover').classList.add('hidden');
-  if (s === 'menu') initParade();
+  if (s === 'menu') { initParade(); syncMenu(); }
   if (s !== 'game') setMusic('menu');
   $('menuMute').classList.toggle('hidden', s === 'game');
   $('menuFs').classList.toggle('hidden', s === 'game');
@@ -153,7 +155,32 @@ $('leaveBtn').onclick = () => { location.href = location.pathname; };
 $('guideBtn').onclick = () => openGuide();
 $('menuGuideBtn').onclick = () => openGuide();
 $('profileBtn').onclick = () => openProfile();
+const MENU_TIPS = [
+  'Guarde ouro: a cada 10 💰 você ganha +1 de juros por rodada (até +5).',
+  'Robôs de mesmo nome brilham na loja quando completam uma evolução.',
+  'Segure o botão direito (ou o dedo) num robô para ver tudo sobre ele.',
+  'Nas rodadas de chefão, espalhe os robôs para fugir das habilidades em área.',
+  'Clique no tabuleiro para a Pequena Lenda pegar os orbes de saque.',
+  'Dois componentes no mesmo robô viram um item completo. Teste combinações!',
+  'Perdeu muito? Sequência de derrotas também dá ouro extra.',
+  'Bigorna no banco de itens: clique nela para escolher o item.',
+  'Na aba Times do Guia tem composições prontas com itens sugeridos.',
+  'Assassinos pulam na sua retaguarda: proteja os atiradores nos cantos.',
+];
 const syncRank = () => { $('menuRank').innerHTML = rankBadge(myLp(), 'big'); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden && screen === 'menu') startMenuHero($<HTMLCanvasElement>('menuHeroCv'), () => screen === 'menu' && !document.hidden); });
+nameInput.addEventListener('change', () => { lsSet('chapatron_name', nameInput.value.trim().slice(0, 20)); if (screen === 'menu') syncMenu(); });
+/** Atualiza o menu: saudação, cartão do jogador, dica e a Pequena Lenda. */
+function syncMenu() {
+  syncRank();
+  const n = (lsGet('chapatron_name') ?? '').trim();
+  const h = new Date().getHours();
+  const hi = h < 6 ? 'Boa madrugada' : h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+  $('menuHello').innerHTML = `${hi}${n ? `, <b>${esc(n)}</b>` : ''}! 🌿`;
+  $('menuCard').innerHTML = menuCardHtml();
+  $('menuTip').innerHTML = `<span>💡 Dica</span>${esc(MENU_TIPS[Math.floor(Math.random() * MENU_TIPS.length)])}`;
+  startMenuHero($<HTMLCanvasElement>('menuHeroCv'), () => screen === 'menu' && !document.hidden);
+}
 syncRank();
 $('avatarBtn').onclick = () => openPicker();
 $('lobbyAvatarBtn').onclick = () => openPicker();
@@ -215,7 +242,7 @@ net.on((msg) => {
       trackState();
       if (msg.phase !== prevPhase) {
         if (msg.phase === 'planning' && prevPhase) sfx('phase');
-        if (msg.phase === 'planning') { store.scoutId = null; setLeftTab('traits'); }
+        if (msg.phase === 'planning') { store.scoutId = null; setLeftTab('traits'); if (msg.pve) bossWarning(msg.round, false); }
         if (msg.phase === 'carousel') { store.scoutId = null; closeInspect(); banner('<b>🎠 CARROSSEL</b><small>clique no chão para andar e pegue um robô!</small>', 'silver'); }
         if (msg.phase !== 'carousel') store.carousel = null;
         if (msg.phase !== 'portal') hidePortalVote();
@@ -248,6 +275,7 @@ net.on((msg) => {
       store.scoutId = null;
       setLeftTab('dmg');
       if (!msg.elapsed) sfx('combat');
+      if (msg.pve && !msg.elapsed) bossWarning(msg.round, true);
       setTimeout(checkTips, 1500);
       if (!msg.elapsed) trackCombat();
       break;
@@ -363,3 +391,17 @@ function loop(now: number) {
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+
+/** Chefão do PvE: aviso na preparação e apresentação quando a luta começa. */
+function bossWarning(round: number, fight: boolean) {
+  const st = stageOf(round).stage;
+  const b = st >= 2 ? bossFor(st) : null;
+  if (!b?.boss) return;
+  const img = `<img class="bn-icon boss" src="${robotPortrait(b.id, b.look)}" alt="">`;
+  if (fight) {
+    banner(`${img}<small>CHEFÃO</small><b>${esc(b.boss.title)}</b>`, 'gold', 2600).classList.add('epic', 'boss');
+    sfx('slam');
+  } else {
+    banner(`${img}<small>⚠️ chefão na próxima luta</small><b>${esc(b.boss.title)}</b><em>${esc(b.boss.desc)}</em>`, 'silver', 4200).classList.add('boss');
+  }
+}

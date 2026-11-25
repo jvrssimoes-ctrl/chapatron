@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import {
   MAX_ITEMS, MAX_LEVEL, POOL_SIZE, REROLL_COST, SHOP_ODDS, SHOP_SIZE, SHOP_UNITS, START_HP, TRAITS, UNITS,
   XP_COST, XP_PER_BUY, XP_TO_LEVEL, isArmoryRound, isAugmentRound, isCarouselRound, isPveRound, sellValue,
-  stageDamage, stageLabel, stageOf, survivorDamage,
+  bossFor, stageDamage, stageLabel, stageOf, survivorDamage,
 } from '../shared/data';
 import { AUGMENTS, augmentPool, traitBonus } from '../shared/augments';
 import { computeTraits, emblemBonus, mergeBonus } from '../shared/traits';
@@ -134,7 +134,7 @@ export class Room {
     const elapsed = Date.now() - this.combatStartedAt;
     for (const c of this.pendingCombats) {
       if (c.a === p) {
-        const name = c.pve ? 'Drones da Patrulha' : c.ghost ? `${c.b!.name} (fantasma)` : c.b!.name;
+        const name = c.pve ? this.pveName() : c.ghost ? `${c.b!.name} (fantasma)` : c.b!.name;
         p.send({ t: 'combat', round: this.round, mySide: 0, opponentName: name, opponentId: c.b?.id, pve: c.pve, result: c.result, elapsed, home: c.home ?? 0, dmg: this.combatDamage(c.result, c.pve) });
         return;
       }
@@ -1106,10 +1106,21 @@ export class Room {
     } else {
       const tier = stage - 1; // 2-7 → 1, 3-7 → 2...
       const star = Math.min(3, tier);
-      for (let i = 0; i < Math.min(7, 1 + tier); i++) units.push({ defId: 'dronebig', star, r: 0, c: cols[i] });
-      for (let i = 0; i < Math.min(7, 2 + tier); i++) units.push({ defId: 'drone', star: Math.min(3, star + 1), r: 1, c: cols[i] });
+      // chefão do estágio no meio da fileira de trás, com a escolta de drones
+      const boss = bossFor(stage);
+      if (boss) units.push({ defId: boss.id, star: 1 + Math.max(0, stage - 6), r: 0, c: 3 });
+      const bigCols = boss ? cols.slice(1) : cols;
+      for (let i = 0; i < Math.min(6, boss ? tier : 1 + tier); i++) units.push({ defId: 'dronebig', star, r: 0, c: bigCols[i] });
+      for (let i = 0; i < Math.min(7, (boss ? 1 : 2) + tier); i++) units.push({ defId: 'drone', star: Math.min(3, star + 1), r: 1, c: cols[i] });
     }
     return { units };
+  }
+
+  /** Nome do adversário PvE (o chefão, quando tem). */
+  pveName() {
+    const st = stageOf(this.round).stage;
+    const b = st >= 2 ? bossFor(st) : null;
+    return b ? b.name : 'Drones da Patrulha';
   }
 
   makePairs(): { a: Player; b: Player | null; ghost: boolean }[] {
@@ -1185,7 +1196,7 @@ export class Room {
         this.pendingCombats.push({ a: p, b: null, ghost: false, result, pve: true });
         maxDur = Math.max(maxDur, result.duration);
         p.opponentId = null;
-        p.send({ t: 'combat', round: this.round, mySide: 0, opponentName: 'Drones da Patrulha', pve: true, result, home: 0, dmg: this.combatDamage(result, true) });
+        p.send({ t: 'combat', round: this.round, mySide: 0, opponentName: this.pveName(), pve: true, result, home: 0, dmg: this.combatDamage(result, true) });
       }
     } else {
       for (const pair of this.makePairs()) {

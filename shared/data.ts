@@ -166,6 +166,7 @@ interface UnitSpec {
   mr?: number;
   pve?: boolean;
   summon?: boolean;
+  boss?: UnitDef['boss'];
 }
 
 function u(s: UnitSpec) {
@@ -177,7 +178,7 @@ function u(s: UnitSpec) {
     armor: s.armor ?? r.res[i], mr: s.mr ?? r.res[i],
     mana: s.mana, startMana: s.startMana,
     ability: { scale: 'ap', ...s.ability },
-    look: s.look, pve: s.pve, summon: s.summon,
+    look: s.look, pve: s.pve, summon: s.summon, boss: s.boss,
   };
 }
 
@@ -457,6 +458,48 @@ u({
   ability: { kind: 'none', fx: 'nuke', name: '—', desc: 'Apita mais alto.', values: [0, 0, 0] },
   look: { color: '#22305a', accent: '#3d8bff', body: 'tank', head: 'tv', acc: ['antenna', 'visor'] },
 });
+
+// ---------- PvE: chefões (um por estágio, do 2 em diante) ----------
+u({
+  id: 'reidrone', name: 'Rei dos Drones', cost: 3, role: 'tank', traits: [], pve: true, mana: 70, startMana: 30,
+  hp: 2900, atk: 72, as: 0.65, armor: 38, mr: 32,
+  ability: { kind: 'enxame', fx: 'shield', name: 'Chamar o Enxame', desc: 'Apita a coroa: chama 2 drones da patrulha do lado dele e ganha um escudo de {v}.', values: [300, 500, 800] },
+  look: { color: '#2a3a7a', accent: '#ffd23f', body: 'tank', head: 'tv', acc: ['crown', 'antenna', 'cape'] },
+  boss: { title: 'Rei dos Drones', desc: 'Chama mais drones a cada habilidade. Derrube ele rápido!', stage: 2 },
+});
+u({
+  id: 'torradeira', name: 'Torradeira Gigante', cost: 3, role: 'apcaster', traits: [], pve: true, mana: 60, startMana: 20,
+  hp: 4900, atk: 85, as: 0.6, range: 3, armor: 42, mr: 42,
+  ability: { kind: 'torrada', fx: 'meteor', name: 'Torrada Quente', desc: 'Dispara 3 torradas em brasa em inimigos aleatórios: {v} de dano mágico e queimadura de 3% da vida por 4s.', values: [270, 380, 500], color: '#ff8a3d' },
+  look: { color: '#c0c6d0', accent: '#ff6b2a', body: 'wide', head: 'square', acc: ['smoke', 'visor'] },
+  boss: { title: 'Torradeira Gigante', desc: 'Queima o seu time de longe. Espalhe os robôs!', stage: 3 },
+});
+u({
+  id: 'aspirador', name: 'Aspirador Colossal', cost: 3, role: 'tank', traits: [], pve: true, mana: 80, startMana: 30,
+  hp: 6400, atk: 98, as: 0.6, armor: 52, mr: 46,
+  ability: { kind: 'sugada', fx: 'meteor', name: 'Sugada Total', desc: 'Suga todos os inimigos a até 3 hexes para perto dele, causa {v} de dano mágico, atordoa por 1s e ganha escudo.', values: [260, 380, 520], radius: 3, color: '#9fe8ff' },
+  look: { color: '#5a2a8a', accent: '#9fe8ff', body: 'round', head: 'dome', acc: ['antenna', 'visor', 'smoke'] },
+  boss: { title: 'Aspirador Colossal', desc: 'Puxa todo mundo pra perto e atordoa. Tanques na frente!', stage: 4 },
+});
+u({
+  id: 'liquidificador', name: 'Liquidificador Titã', cost: 3, role: 'fighter', traits: [], pve: true, mana: 60, startMana: 20,
+  hp: 10000, atk: 160, as: 0.7, armor: 62, mr: 62,
+  ability: { kind: 'turbilhao', fx: 'aoeStun', scale: 'ad', name: 'Turbilhão', desc: 'Gira as lâminas: 3 golpes de {v}% do Dano de Ataque em quem estiver a até 2 hexes, empurrando. Abaixo de 50% de vida fica furioso (+60% vel. de ataque).', values: [110, 140, 180], radius: 2, color: '#ff5d73' },
+  look: { color: '#d8e8f0', accent: '#ff5d73', body: 'tall', head: 'dome', acc: ['mohawk', 'visor'] },
+  boss: { title: 'Liquidificador Titã', desc: 'Bate em área e fica furioso com metade da vida. Cuidado com os frágeis!', stage: 5 },
+});
+u({
+  id: 'geladeira', name: 'Geladeira Suprema', cost: 3, role: 'tank', traits: [], pve: true, mana: 80, startMana: 40,
+  hp: 13500, atk: 170, as: 0.65, armor: 80, mr: 80,
+  ability: { kind: 'congelar', fx: 'aoeStun', name: 'Congelamento', desc: 'Abre a porta: {v} de dano mágico em quem estiver a até 2 hexes do maior grupo, que fica congelado por 2s. Os drones aliados ganham escudo.', values: [450, 600, 800], radius: 2, color: '#bfe9ff' },
+  look: { color: '#e8f4ff', accent: '#5dc8ff', body: 'tank', head: 'square', acc: ['crown', 'halo', 'cape'] },
+  boss: { title: 'Geladeira Suprema', desc: 'A chefona final: congela grupos inteiros. Monte o time mais forte!', stage: 6 },
+});
+export const BOSSES = Object.values(UNITS).filter((d) => d.boss);
+/** Chefão do estágio (o último se repete nos estágios finais). */
+export function bossFor(stage: number) {
+  return [...BOSSES].sort((a, b) => b.boss!.stage - a.boss!.stage).find((d) => d.boss!.stage <= stage) ?? null;
+}
 
 // Ajuste global de ritmo (combates de ~20-25s, igual TFT).
 export const AD_SCALE = 1.25;

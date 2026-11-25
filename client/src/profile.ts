@@ -146,6 +146,33 @@ export function trackGameOver(place: number, players: number, mode = 'normal') {
   return lastRank;
 }
 
+// ---------------- cartão do jogador no menu ----------------
+
+/** Cartão do menu: ranque, números e últimas partidas. */
+export function menuCardHtml() {
+  const r = rankOf(prof.lp);
+  const avg = prof.places.length ? (prof.places.reduce((s, x) => s + x, 0) / prof.places.length).toFixed(1) : '—';
+  const pct = (n: number) => (prof.games ? `${Math.round((100 * n) / prof.games)}%` : '—');
+  const recent = prof.history.slice(0, 5).map((g) => {
+    const top = [...g.units].sort((a, b) => (UNITS[b.d]?.cost ?? 0) * 10 + b.s - ((UNITS[a.d]?.cost ?? 0) * 10 + a.s))[0];
+    const d = top ? UNITS[top.d] : null;
+    const cls = g.place === 1 ? 'p1' : g.place <= 4 ? 'top' : '';
+    return `<li class="${cls}"><b>${g.place}º</b>${d ? `<img src="${robotPortrait(d.id, d.look)}" alt="" style="--cc:${COST_COLORS[d.cost]}">` : ''}
+      <span>${g.mode && g.mode !== 'normal' ? (g.mode === 'turbo' ? '⚡ Turbo' : '🤝 Dupla') : '🌿 Normal'}<small>${new Date(g.at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</small></span>
+      ${g.lp !== undefined ? `<em class="${g.lp >= 0 ? 'lp-up' : 'lp-down'}">${g.lp >= 0 ? '+' : ''}${g.lp}</em>` : ''}</li>`;
+  }).join('');
+  return `<div class="mc-rank" style="--rc:${r.tier.color}"><span class="mc-rank-ic">${r.tier.icon}</span>
+      <div><b>${esc(r.label)}</b><div class="pf-rank-bar"><i style="width:${r.top ? 100 : r.pts}%"></i></div><small>${r.top ? `${r.pts} pontos` : `${r.pts}/100 pontos`}</small></div></div>
+    <div class="mc-stats">
+      <div><b>${prof.games}</b><small>partidas</small></div>
+      <div><b>${prof.wins}</b><small>vitórias</small></div>
+      <div><b>${pct(prof.top4)}</b><small>top 4</small></div>
+      <div><b>${avg}</b><small>colocação</small></div>
+    </div>
+    <h4>Últimas partidas</h4>
+    ${recent ? `<ol class="mc-recent">${recent}</ol>` : '<p class="mc-empty">Nenhuma partida ainda. Bora a primeira? 🌿</p>'}`;
+}
+
 // ---------------- tela do perfil ----------------
 
 let root: HTMLElement | null = null;

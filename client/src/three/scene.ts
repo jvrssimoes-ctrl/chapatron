@@ -783,7 +783,10 @@ export class Scene3D {
   }
 
   private unitScale(defId: string, star: number) {
-    const cost = UNITS[defId]?.cost ?? 1;
+    const d = UNITS[defId];
+    const cost = d?.cost ?? 1;
+    // chefões do PvE são bem maiores
+    if (d?.boss) return 3.0 + (star - 1) * 0.2;
     return 1.65 + (star - 1) * 0.22 + (cost - 1) * 0.06;
   }
 

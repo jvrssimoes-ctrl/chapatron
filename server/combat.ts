@@ -73,6 +73,7 @@ interface CU {
   thornsReadyAt: number;
   tampaDone: boolean;
   relogioDone: boolean;
+  enraged: boolean;
   facaDone: boolean;
   escudoDone: boolean;
   jumper: boolean;
@@ -151,7 +152,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       dodge: 0, crit: BASE_CRIT / 100, critDmg: 1 + BASE_CRIT_DMG / 100, abilityCrit: false, ap: 100,
       omnivamp: 0, regen: 0, manaRegen: 0, killHeal: 0, killAS: 0, recycle: 0, dmgAmp: 0, reduce: 0,
       buffAS: 0, buffUntil: 0, turboUntil: 0, armorShredUntil: 0, mrShredUntil: 0, healCutUntil: 0, dots: [],
-      atkCount: 0, coleteStacks: 0, thornsReadyAt: 0, tampaDone: false, relogioDone: false, facaDone: false, escudoDone: true,
+      atkCount: 0, coleteStacks: 0, thornsReadyAt: 0, tampaDone: false, relogioDone: false, enraged: false, facaDone: false, escudoDone: true,
       jumper: def.role === 'assassin', manaFromHits: def.role === 'tank' ? 1.5 : 1,
       abilityAmp: 0, neonMana: 0, paraAS: 0, paraDone: false, invulnUntil: 0, piradoPct: 0,
       blindUntil: 0, slowUntil: 0, slowAmt: 0, vulnUntil: 0, vulnAmt: 0, tauntBy: null, tauntUntil: 0,
@@ -1093,6 +1094,73 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
           hit(tg);
           for (const e of adj) { hit(e, v / 2); push(tg, e); }
         });
+        break;
+      }
+      // ---------------- chefões do PvE ----------------
+      case 'enxame': {
+        ev();
+        addShield(u, base, 4000);
+        later(300, () => {
+          if (!u.alive) return;
+          const star = Math.min(3, Math.max(1, u.star + 1));
+          for (let i = 0; i < 2; i++) {
+            const spot = freeNear(u.r, u.c);
+            if (!spot) break;
+            const m = makeCU(UNITS.drone, u.side, spot[0], spot[1], star, 0, []);
+            m.nextAct = t + 400;
+            units.push(m);
+            events.push({ t, k: 'spawn', u: m.uid, src: u.uid, unit: initOf(m) });
+          }
+        });
+        break;
+      }
+      case 'torrada': {
+        const es = [...enemiesOf(u)].sort(() => rng() - 0.5).slice(0, 3);
+        ev({ tgs: es.map((e) => e.uid) });
+        es.forEach((e, i) => later(350 + i * 180, () => { if (!e.alive) return; fx(u, 'bigbang', { r: e.r, c: e.c, n: i + 1 }); hit(e, base, 'magic'); addDot(e, u, e.maxHp * 0.03, 4000, 'true', false, 'burn'); }));
+        break;
+      }
+      case 'sugada': {
+        const rad = ab.radius ?? 3;
+        const hits = adjEnemies(u, rad);
+        ev({ tg: u.uid, tgs: hits.map((e) => e.uid), r: u.r, c: u.c });
+        later(350, () => {
+          for (const e of byDist(u, hits)) {
+            if (!e.alive || dist(e, u) <= 1) continue;
+            const spots = neighbors(u.r, u.c).filter(([r, c]) => !occupied(r, c))
+              .sort((p, q) => hexDist(e.r, e.c, p[0], p[1]) - hexDist(e.r, e.c, q[0], q[1]));
+            if (spots.length) moveTo(e, spots[0][0], spots[0][1], 'dash');
+          }
+        });
+        later(750, () => { for (const e of hits) { hit(e, base, 'magic'); stun(e, 1000); } addShield(u, u.maxHp * 0.08, 4000); });
+        break;
+      }
+      case 'turbilhao': {
+        const rad = ab.radius ?? 2;
+        ev({ tgs: adjEnemies(u, rad).map((e) => e.uid) });
+        if (u.hp < u.maxHp * 0.5 && !u.enraged) {
+          u.enraged = true;
+          u.asPct += 0.6;
+          status(u, 'rage', 8000);
+        }
+        for (let k = 0; k < 3; k++) {
+          later(250 + k * 380, () => {
+            if (!u.alive) return;
+            const hs = adjEnemies(u, rad);
+            fx(u, 'turbilhao', { tgs: hs.map((e) => e.uid), n: k });
+            for (const e of hs) { hit(e, (base / 100) * adOf(u), 'phys'); if (k === 2) push(u, e); }
+          });
+        }
+        break;
+      }
+      case 'congelar': {
+        const center = clusterCenter(u, 2) ?? tg;
+        if (!center) { ev(); break; }
+        const r0 = center.r, c0 = center.c;
+        const hits = adjEnemies({ r: r0, c: c0 }, ab.radius ?? 2);
+        ev({ tg: center.uid, tgs: hits.map((e) => e.uid), r: r0, c: c0 });
+        later(450, () => { for (const e of hits) { hit(e, base, 'magic'); stun(e, 2000); } });
+        for (const al of alliesOf(u)) if (al !== u) addShield(al, al.maxHp * 0.25, 4000);
         break;
       }
       default:

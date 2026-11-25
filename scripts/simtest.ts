@@ -16,6 +16,8 @@ const MODE = (process.argv.find((a) => a.startsWith('--mode='))?.slice(7) ?? 'no
 let totalRounds = 0;
 const durs: Record<string, number[]> = { pve: [], pvp: [] };
 const timeouts: Record<string, number> = { pve: 0, pvp: 0 };
+/** vitórias contra cada chefão do PvE: [venceu, total] */
+const bossWins: Record<string, [number, number]> = {};
 const groupPlace: Record<string, number[]> = { nova: [], antiga: [] };
 // por unidade: colocações finais de quem terminou com ela no tabuleiro
 const unitPlaces: Record<string, number[]> = {};
@@ -80,6 +82,7 @@ for (let g = 0; g < games; g++) {
       const key = c.pve ? 'pve' : 'pvp';
       durs[key].push(c.result.duration);
       if (c.result.winner === -1) timeouts[key]++;
+      if (c.pve) { const k = room.pveName(); const w = (bossWins[k] ??= [0, 0]); w[1]++; if (c.result.winner === 0) w[0]++; }
     }
     for (const p of room.alive()) boards.set(p, p.boardUnits().map((u) => ({ defId: u.defId, star: u.star })));
     room.endCombat();
@@ -103,6 +106,7 @@ for (const k of ['pve', 'pvp']) {
   const d = durs[k].sort((a, b) => a - b);
   console.log(`${k}: ${d.length} combates, média ${(avg(d) / 1000).toFixed(1)}s, mediana ${(d[d.length >> 1] / 1000).toFixed(1)}s, p90 ${(d[Math.floor(d.length * 0.9)] / 1000).toFixed(1)}s, empates/timeout ${timeouts[k]}`);
 }
+for (const [k, [w, n]] of Object.entries(bossWins)) console.log(`  vs ${k.padEnd(22)} vitória ${((100 * w) / n).toFixed(0)}% (n=${n})`);
 if (AB) for (const [k, v] of Object.entries(groupPlace)) console.log(`IA ${k}: colocação média ${avg(v).toFixed(2)}, top4 ${(top4(v) * 100).toFixed(0)}%, vitórias ${v.filter((x) => x === 1).length}`);
 const lv = [12, 15, 19, 25, 30].filter((r) => levelAt[r]).map((r) => `r${r}:${avg(levelAt[r]).toFixed(1)}`).join(' ');
 console.log('Nível médio por rodada:', lv);
