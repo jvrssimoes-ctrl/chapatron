@@ -8,7 +8,7 @@ import { robotPortrait } from './three/portrait';
 import { SKINS, setSkin, skin } from './skins';
 import { ARENAS, arena, setArena } from './arenas';
 import { sfx } from './sfx';
-import { lpDelta, rankBadge, rankOf } from './rank';
+import { TIERS, lpDelta, rankBadge, rankOf, seasonCarry, seasonOf } from './rank';
 import { store } from './store';
 
 // Perfil local (fica no navegador): estatísticas, histórico, conquistas e skin escolhida.
@@ -25,15 +25,43 @@ interface Profile {
   /** pontos de ranque e melhor marca */
   lp: number;
   peak: number;
+  /** temporada atual (número), melhor marca e partidas nela */
+  season: number;
+  seasonPeak: number;
+  seasonGames: number;
+  /** temporadas passadas */
+  seasons: SeasonRecord[];
+  /** placar da galera: amigos humanos com quem já jogou */
+  friends: Record<string, Friend>;
 }
+interface SeasonRecord { n: number; name: string; peak: number; games: number }
+export interface Friend { name: string; lp: number; avatar: string; games: number; ahead: number; behind: number; last: number }
 
 const KEY = 'chapatron_profile';
-const blank = (): Profile => ({ games: 0, wins: 0, top4: 0, places: [], history: [], unitPlays: {}, stars3: 0, achievements: {}, skin: 'padrao', lp: 0, peak: 0 });
+const blank = (): Profile => ({ games: 0, wins: 0, top4: 0, places: [], history: [], unitPlays: {}, stars3: 0, achievements: {}, skin: 'padrao', lp: 0, peak: 0, season: 0, seasonPeak: 0, seasonGames: 0, seasons: [], friends: {} });
 function load(): Profile {
   try { return { ...blank(), ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return blank(); }
 }
 const prof = load();
 function save() { try { localStorage.setItem(KEY, JSON.stringify(prof)); } catch { /* */ } }
+
+// virada de temporada: guarda a marca da que acabou e faz o reset parcial dos pontos
+let seasonRolled: SeasonRecord | null = null;
+(function rollSeason() {
+  const cur = seasonOf();
+  if (prof.season === cur.n) return;
+  if (prof.season > 0 && prof.seasonGames > 0) {
+    seasonRolled = { n: prof.season, name: seasonOf(new Date(2026, 10 + prof.season - 1, 15).getTime()).name, peak: prof.seasonPeak, games: prof.seasonGames };
+    prof.seasons = [seasonRolled, ...prof.seasons].slice(0, 24);
+    prof.lp = seasonCarry(prof.lp);
+  }
+  prof.season = cur.n;
+  prof.seasonPeak = prof.lp;
+  prof.seasonGames = 0;
+  save();
+})();
+/** Temporada que acabou de virar (para avisar no menu uma vez). */
+export function takeSeasonRollover() { const r = seasonRolled; seasonRolled = null; return r; }
 setSkin(prof.skin);
 
 // ---------------- conquistas ----------------
@@ -53,6 +81,11 @@ export const ACHIEVEMENTS: Ach[] = [
   { id: 'porumfio', name: 'Por um Fio', desc: 'Fique no top 4 depois de chegar a 10 de vida ou menos.', icon: '🩹' },
   { id: 'veterano', name: 'Veterano da Brisa', desc: 'Jogue 10 partidas.', icon: '🎖️' },
   { id: 'colecionador', name: 'Colecionador', desc: 'Termine partidas usando 30 robôs diferentes.', icon: '📚' },
+  { id: 'chefao', name: 'Caçador de Chefões', desc: 'Derrote um chefão do PvE.', icon: '🐉' },
+  { id: 'mutantes', name: 'Experimento Concluído', desc: 'Ative os 6 Mutantes.', icon: '🧪' },
+  { id: 'ouro', name: 'Ouro no Peito', desc: 'Chegue ao ranque Ouro Verde.', icon: '🥇' },
+  { id: 'galera', name: 'Galera Reunida', desc: 'Jogue com 3 amigos diferentes (sem contar bots).', icon: '🫂' },
+  { id: 'temporada', name: 'Veterano de Temporada', desc: 'Jogue partidas em 2 temporadas diferentes.', icon: '📅' },
 ];
 
 function unlock(id: string) {
@@ -94,6 +127,7 @@ export function trackState() {
   if (me.level >= 9) unlock('nivel9');
   if (me.streak >= 5) unlock('sequencia');
   if (me.units.some((u) => u.star >= 2 && UNITS[u.defId].cost === 5)) unlock('lenda');
+  if (board.length && computeTraits(board.map((u) => u.defId), mergeBonus(traitBonus(me.augments), emblemBonus(board))).some((t) => t.id === 'mutante' && t.tier >= 2)) unlock('mutantes');
 }
 
 export function onStarUp(star: number) {
@@ -111,6 +145,8 @@ export function trackCombat() {
   const mine = new Set(cb.result.units.filter((u) => u.side === cb.mySide).map((u) => u.uid));
   for (const e of cb.result.events) if (e.k === 'dmg' && e.s !== undefined && mine.has(e.s)) dmg += e.amt;
   if (dmg >= 6000) unlock('dano');
+  const boss = cb.result.units.some((u) => u.side !== cb.mySide && UNITS[u.defId]?.boss);
+  if (boss && cb.result.winner === cb.mySide) unlock('chefao');
 }
 
 export interface RankChange { before: number; after: number; delta: number }
@@ -127,6 +163,8 @@ export function trackGameOver(place: number, players: number, mode = 'normal') {
   const delta = lpDelta(place, players);
   prof.lp = Math.max(0, prof.lp + delta);
   prof.peak = Math.max(prof.peak, prof.lp);
+  prof.seasonPeak = Math.max(prof.seasonPeak, prof.lp);
+  prof.seasonGames++;
   lastRank = { before, after: prof.lp, delta: prof.lp - before };
   prof.games++;
   if (place === 1) prof.wins++;
@@ -141,9 +179,66 @@ export function trackGameOver(place: number, players: number, mode = 'normal') {
   if (place <= 4 && minHp <= 10) unlock('porumfio');
   if (prof.games >= 10) unlock('veterano');
   if (Object.keys(prof.unitPlays).length >= 30) unlock('colecionador');
+  if (prof.lp >= TIERS[3].min) unlock('ouro');
+  if (prof.seasons.length >= 1) unlock('temporada');
   const rb = rankOf(before), ra = rankOf(prof.lp);
   if (ra.index > rb.index) setTimeout(() => { banner(`<span class="bn-stars">${ra.tier.icon}</span><b>${esc(ra.tier.name)}</b><small>Subiu de ranque!</small>`, 'gold', 3600); sfx('levelup'); }, 2200);
   return lastRank;
+}
+
+// ---------------- placar da galera ----------------
+
+const fkey = (name: string) => name.trim().toLowerCase();
+/** No fim da partida: registra os humanos que jogaram com você (ranque vem da sala). */
+export function trackFriends(ranking: { id: string; name: string; place: number; isBot: boolean }[], myPlace: number) {
+  const info = new Map<string, { lp?: number; avatar?: string }>((store.state?.players ?? store.lobby?.players ?? []).map((p) => [p.id, p]));
+  for (const r of ranking) {
+    if (r.isBot || r.id === store.youId || !r.name.trim()) continue;
+    const p = info.get(r.id);
+    const f = (prof.friends[fkey(r.name)] ??= { name: r.name, lp: 0, avatar: '', games: 0, ahead: 0, behind: 0, last: 0 });
+    f.name = r.name;
+    if (p?.lp !== undefined) f.lp = p.lp;
+    if (p?.avatar) f.avatar = p.avatar;
+    f.games++;
+    if (myPlace < r.place) f.ahead++;
+    else if (myPlace > r.place) f.behind++;
+    f.last = Date.now();
+  }
+  const keep = Object.entries(prof.friends).sort((a, b) => b[1].last - a[1].last).slice(0, 40);
+  prof.friends = Object.fromEntries(keep);
+  save();
+  if (Object.keys(prof.friends).length >= 3) unlock('galera');
+}
+/** Na sala: atualiza ranque e visual de amigos que já estão no placar. */
+export function seeFriends(players: { id: string; name: string; isBot: boolean; lp: number; avatar: string }[]) {
+  let changed = false;
+  for (const p of players) {
+    if (p.isBot || p.id === store.youId) continue;
+    const f = prof.friends[fkey(p.name)];
+    if (f && (f.lp !== p.lp || f.avatar !== p.avatar)) { f.lp = p.lp; f.avatar = p.avatar; changed = true; }
+  }
+  if (changed) save();
+}
+/** Dados usados para liberar cosméticos. */
+export const unlockStats = () => ({ games: prof.games, peak: prof.peak, achievements: prof.achievements, seasons: prof.seasons.length });
+
+function galeraRows(limit: number) {
+  const rows = [{ name: 'Você', lp: prof.lp, me: true, games: prof.games, ahead: 0, behind: 0 },
+    ...Object.values(prof.friends).map((f) => ({ ...f, me: false }))].sort((a, b) => b.lp - a.lp);
+  const meIdx = rows.findIndex((r) => r.me);
+  let list = rows.slice(0, limit);
+  if (meIdx >= limit) list = [...rows.slice(0, limit - 1), rows[meIdx]];
+  return list.map((r) => {
+    const rk = rankOf(r.lp);
+    const pos = rows.indexOf(r) + 1;
+    return `<li class="${r.me ? 'me' : ''}" style="--rc:${rk.tier.color}"><b>${pos}º</b><span class="gl-ic">${rk.tier.icon}</span>
+      <span class="gl-name">${esc(r.name)}<small>${esc(rk.label)}${r.me ? '' : ` · ${r.games} ${r.games === 1 ? 'partida' : 'partidas'} juntos`}</small></span>
+      ${r.me ? '' : `<em title="vezes que você ficou na frente / atrás">${r.ahead}–${r.behind}</em>`}</li>`;
+  }).join('');
+}
+function seasonLine() {
+  const s = seasonOf();
+  return `<div class="season-line"><b>📅 Temporada ${s.n}</b><span>${esc(s.name)}</span><small>termina em ${s.daysLeft} ${s.daysLeft === 1 ? 'dia' : 'dias'}</small></div>`;
 }
 
 // ---------------- cartão do jogador no menu ----------------
@@ -169,8 +264,10 @@ export function menuCardHtml() {
       <div><b>${pct(prof.top4)}</b><small>top 4</small></div>
       <div><b>${avg}</b><small>colocação</small></div>
     </div>
+    ${seasonLine()}
     <h4>Últimas partidas</h4>
-    ${recent ? `<ol class="mc-recent">${recent}</ol>` : '<p class="mc-empty">Nenhuma partida ainda. Bora a primeira? 🌿</p>'}`;
+    ${recent ? `<ol class="mc-recent">${recent}</ol>` : '<p class="mc-empty">Nenhuma partida ainda. Bora a primeira? 🌿</p>'}
+    ${Object.keys(prof.friends).length ? `<h4>🏆 Placar da galera</h4><ol class="galera mini">${galeraRows(4)}</ol>` : ''}`;
 }
 
 // ---------------- tela do perfil ----------------
@@ -234,7 +331,10 @@ function render() {
     <div class="gd-head"><h2>🏅 Seu Perfil</h2><span class="pf-sub">salvo neste navegador</span><button class="gd-close btn small ghost" title="Fechar (Esc)">✖</button></div>
     <div class="gd-body">
       ${rankBox()}
-      <div class="pf-stats">
+      ${seasonLine()}
+      ${prof.seasons.length ? `<div class="pf-seasons">${prof.seasons.map((x) => { const r = rankOf(x.peak); return `<div style="--rc:${r.tier.color}" title="${esc(x.name)} · ${x.games} partidas"><span>${r.tier.icon}</span><b>T${x.n}</b><small>${esc(r.label)}</small></div>`; }).join('')}</div>` : ''}
+      <h4>🏆 Placar da galera <small>amigos com quem você jogou</small></h4>
+      ${Object.keys(prof.friends).length ? `<ol class="galera">${galeraRows(12)}</ol>` : '<p class="gd-hint">Jogue com amigos (mande o link da sala) para eles aparecerem aqui com o ranque de cada um.</p>'}      <div class="pf-stats">
         <div><b>${prof.games}</b><span>partidas</span></div>
         <div><b>${prof.wins}</b><span>vitórias · ${pct(prof.wins)}</span></div>
         <div><b>${prof.top4}</b><span>top 4 · ${pct(prof.top4)}</span></div>

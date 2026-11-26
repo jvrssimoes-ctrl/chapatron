@@ -16,12 +16,12 @@ import { Vfx } from './vfx';
 import { itemCanvas } from '../itemIcons';
 import { onArena } from '../arenas';
 import { onSkin, skin } from '../skins';
-import { buildAvatar, lookKey, parseLook, type AvatarModel } from './avatar';
+import { buildAvatar, lookKey, parseLook, trailOf, type AvatarModel } from './avatar';
 
 /** canto do tabuleiro onde a Fumacinha fica parada */
 const AV_HOME = new THREE.Vector3(-6.5, 0.08, 5.5);
 
-interface Av { m: AvatarModel; look: string; pos: THREE.Vector3; target: THREE.Vector3; yaw: number; moving: boolean; pickedAt: number; hurtAt: number; danceUntil: number; emote: { text: string; at: number } | null }
+interface Av { m: AvatarModel; look: string; trail: ReturnType<typeof trailOf>; pos: THREE.Vector3; target: THREE.Vector3; yaw: number; moving: boolean; pickedAt: number; hurtAt: number; danceUntil: number; emote: { text: string; at: number } | null }
 interface Shot { mesh: THREE.Mesh; from: THREE.Vector3; target: string; start: number; dur: number; last: boolean; dmg: number }
 /** canto do oponente (lado de cima) */
 const AV_AWAY = new THREE.Vector3(6.5, 0.08, -5.5);
@@ -1541,7 +1541,7 @@ export class Scene3D {
         m.root.scale.setScalar(id === store.youId ? 1.55 : 1.3);
         this.scene.add(m.root);
         const start = id === store.youId && this.lastPhase !== 'carousel' ? AV_HOME : w.pos;
-        av = { m, look: lookKey(look), pos: start.clone(), target: w.pos.clone(), yaw: 0, moving: false, pickedAt: -1e9, hurtAt: -1e9, danceUntil: 0, emote: null };
+        av = { m, look: lookKey(look), trail: trailOf(look), pos: start.clone(), target: w.pos.clone(), yaw: 0, moving: false, pickedAt: -1e9, hurtAt: -1e9, danceUntil: 0, emote: null };
         this.avatars.set(id, av);
         if (id !== store.youId && !car) this.portalBurst(av.pos, '#c58bff');
       }
@@ -1561,7 +1561,16 @@ export class Scene3D {
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         av.yaw += diff * Math.min(1, dt * 12);
-        if (Math.random() < dt * 14) this.emit(av.pos.clone().setY(0.25), { vel: new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.5, (Math.random() - 0.5) * 0.4), life: 0.8, s0: 0.25, s1: 0.6, color: '#d8ccff', alpha: 0.35 });
+        const tr = av.trail;
+        if (Math.random() < dt * (tr.id ? 22 : 14)) {
+          const col = tr.color[Math.floor(Math.random() * tr.color.length)];
+          if (tr.id === 'arcoiris') { const h = (now / 900) % 1; this.emit(av.pos.clone().setY(0.3), { vel: new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.5, (Math.random() - 0.5) * 0.3), life: 1, s0: 0.22, s1: 0.1, color: `hsl(${Math.round(h * 360)},100%,65%)`, alpha: 0.85, additive: true }); }
+          else this.emit(av.pos.clone().setY(tr.id ? 0.35 : 0.25), {
+            vel: new THREE.Vector3((Math.random() - 0.5) * 0.5, (tr.rise ?? 0.5) * (0.6 + Math.random() * 0.6), (Math.random() - 0.5) * 0.5),
+            life: tr.id === 'faisca' ? 0.5 : 0.9, s0: tr.id === 'fumaca' ? 0.3 : tr.id ? 0.16 : 0.25, s1: tr.id === 'fumaca' ? 0.7 : tr.id ? 0.04 : 0.6,
+            color: col, alpha: tr.additive ? 0.9 : 0.4, additive: tr.additive,
+          });
+        }
       } else av.yaw *= 1 - Math.min(1, dt * 4);
       av.m.root.position.copy(av.pos);
       av.m.root.rotation.y = av.yaw;

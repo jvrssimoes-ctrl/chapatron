@@ -107,6 +107,11 @@ interface CU {
   hyperUntil: number;
   summons: number;
   summon: boolean;
+  // Laboratório Clandestino
+  mutPct: number; // Mutantes: crescimento por acúmulo
+  mutStacks: number;
+  duelPct: number; // Duelistas: vel. de ataque por ataque
+  duelStacks: number;
 }
 
 function mulberry32(seed: number) {
@@ -127,6 +132,7 @@ const NO_RANGE = new Set<AbilityKind>([
   'cascagrossa', 'bolinhapaz', 'estouro', 'fornada', 'grave', 'fotossintese', 'neblinapesada', 'rima', 'hiperespaco',
   'latariareal', 'vibracao', 'seiva', 'festa', 'radinho', 'espelho', 'groove', 'pizza', 'eclipse', 'golpenebuloso',
   'cupinzeiro', 'imantar', 'parafuso', 'buraconegro', 'raiz', 'moedor',
+  'gosma', 'inchar', 'relampago', 'cuspeacido', 'campotesla', 'chuvagosma', 'descarga',
 ]);
 
 export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult {
@@ -159,6 +165,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       stealthUntil: 0, reflectUntil: 0, reflectPct: 0, silenceUntil: 0, dodgeBuffUntil: 0, dodgeBuff: 0,
       adBuff: 0, adBuffUntil: 0, resBuff: 0, resBuffUntil: 0, popAttacks: 0, popPct: 0, hyperUntil: 0,
       summons: 0, summon: !!def.summon,
+      mutPct: 0, mutStacks: 0, duelPct: 0, duelStacks: 0,
     };
   };
 
@@ -166,6 +173,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
 
   const hackedSides = new Set<0 | 1>();
   const gardens: { side: 0 | 1; count: number; hp: number; col: number }[] = [];
+  const shocks: { side: 0 | 1; count: number; dmg: number }[] = [];
   const build = (side: 0 | 1, input: SideInput) => {
     const list = input.units;
     const augs = new Set(input.augments ?? []);
@@ -249,6 +257,8 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       cu.neonMana = hasT('neon') ? extra('neon') : 0;
       cu.paraAS = hasT('paranoico') ? val('paranoico') / 100 : 0;
       cu.piradoPct = hasT('pirado') ? val('pirado') / 100 : 0;
+      cu.mutPct = hasT('mutante') ? val('mutante') / 100 : 0;
+      cu.duelPct = hasT('duelista') ? val('duelista') / 100 : 0;
       cu.dmgAmp += nRad * RADIANT_BONUS.dmg;
       // ---- artefatos ----
       if (has.has('armadurazen')) cu.invulnUntil = 2500;
@@ -269,6 +279,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
       }
       units.push(cu);
     }
+    if (val('eletrico') > 0) shocks.push({ side, count: val('eletrico'), dmg: extra('eletrico') });
     if (val('jardineiro') > 0 && gardeners.length) {
       const col = Math.round(gardeners.reduce((s, x) => s + x, 0) / gardeners.length);
       gardens.push({ side, count: val('jardineiro'), hp: extra('jardineiro'), col });
@@ -567,6 +578,37 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
     m.nextAct = t + 500;
     units.push(m);
     events.push({ t, k: 'spawn', u: m.uid, src: owner.uid, unit: initOf(m) });
+  };
+
+  // Mutantes: crescem durante o combate (até 5 vezes)
+  const mutate = (u: CU, force = false) => {
+    if (!u.alive || (u.mutStacks >= 5 && !force)) return;
+    const pct = u.mutPct || 0.04;
+    u.mutStacks++;
+    const add = u.maxHp * pct;
+    u.maxHp += add;
+    u.hp += add;
+    u.adPct += pct;
+    u.ap += pct * 100;
+    fx(u, 'mutacao', { n: u.mutStacks });
+    events.push({ t, k: 'heal', u: u.uid, amt: Math.round(add), hp: Math.round(u.hp), maxHp: Math.round(u.maxHp) });
+  };
+  // Eletrizados: raio periódico em inimigos aleatórios
+  const shock = (sh: { side: 0 | 1; count: number; dmg: number }) => {
+    const src = units.filter((x) => x.alive && x.side === sh.side && unitTraits(x.def.id, x.items).includes('eletrico'));
+    if (!src.length) return;
+    const from = src[Math.floor(rng() * src.length)];
+    const es = units.filter((x) => x.alive && x.side !== sh.side).sort(() => rng() - 0.5).slice(0, sh.count);
+    if (!es.length) return;
+    fx(from, 'choque', { tgs: es.map((e) => e.uid) });
+    later(200, () => {
+      for (const e of es) {
+        if (!e.alive) continue;
+        damage(from, e, sh.dmg, 'magic', 'proc');
+        e.mana = Math.max(0, e.mana - 10);
+        events.push({ t, k: 'mana', u: e.uid, mana: Math.round(e.mana) });
+      }
+    });
   };
 
   // =================== HABILIDADES ÚNICAS ===================
@@ -1163,6 +1205,159 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
         for (const al of alliesOf(u)) if (al !== u) addShield(al, al.maxHp * 0.25, 4000);
         break;
       }
+      // ---------------- Laboratório Clandestino ----------------
+      case 'gosma': {
+        const adj = adjEnemies(u);
+        ev({ tgs: adj.map((e) => e.uid) });
+        addShield(u, v, 4000);
+        for (const e of adj) { e.slowUntil = t + 3000; e.slowAmt = 0.35; status(e, 'slow', 3000); }
+        break;
+      }
+      case 'faisca': {
+        if (!tg) { ev(); break; }
+        const chain: CU[] = [tg];
+        for (let i = 0; i < 2; i++) {
+          const nx = byDist(chain[chain.length - 1], enemiesOf(u).filter((e) => !chain.includes(e)))[0];
+          if (nx) chain.push(nx);
+        }
+        ev({ tg: tg.uid, tgs: chain.map((e) => e.uid) });
+        chain.forEach((e, i) => later(220 + i * 140, () => hit(e, i === 0 ? v : v / 2)));
+        break;
+      }
+      case 'estocada': {
+        if (!tg) { ev(); break; }
+        ev({ tg: tg.uid });
+        u.nextAct = t + 750;
+        for (let i = 0; i < 3; i++) later(150 + i * 180, () => {
+          if (!u.alive || !tg.alive) return;
+          fx(u, 'estocada', { tg: tg.uid, n: i });
+          hit(tg);
+          if (u.duelPct > 0 && u.duelStacks < 10) { u.duelStacks++; u.asPct += u.duelPct; }
+        });
+        break;
+      }
+      case 'chicotada': {
+        if (!tg) { ev(); break; }
+        const hits = [tg, ...byDist(tg, enemiesOf(u).filter((e) => e !== tg)).slice(0, 2)];
+        ev({ tg: tg.uid, tgs: hits.map((e) => e.uid) });
+        later(280, () => {
+          for (const e of hits) {
+            if (!e.alive) continue;
+            hit(e);
+            if (e.alive && dist(e, u) > 1) {
+              const spots = neighbors(e.r, e.c).filter(([r, c]) => !occupied(r, c) && hexDist(r, c, u.r, u.c) < dist(e, u))
+                .sort((p, q) => hexDist(p[0], p[1], u.r, u.c) - hexDist(q[0], q[1], u.r, u.c));
+              if (spots.length) moveTo(e, spots[0][0], spots[0][1], 'dash');
+            }
+          }
+        });
+        break;
+      }
+      case 'descarga': {
+        const center = clusterCenter(u, 1) ?? tg;
+        if (!center) { ev(); break; }
+        const r0 = center.r, c0 = center.c;
+        const hits = adjEnemies({ r: r0, c: c0 }, ab.radius ?? 1);
+        ev({ tg: center.uid, tgs: hits.map((e) => e.uid), r: r0, c: c0 });
+        later(320, () => { for (const e of hits) { hit(e); if (e.alive) { e.silenceUntil = t + 2000; status(e, 'silence', 2000); } } });
+        break;
+      }
+      case 'finta': {
+        if (!tg) { ev(); break; }
+        ev({ tg: tg.uid });
+        u.stealthUntil = t + 800; status(u, 'stealth', 800);
+        u.crit += x / 100;
+        later(300, () => {
+          if (!u.alive || !tg.alive) return;
+          const spot = spotBehind(u, tg);
+          if (spot && dist(u, tg) > 1) moveTo(u, spot[0], spot[1], 'dash');
+          fx(u, 'finta', { tg: tg.uid });
+          damage(u, tg, v, 'phys', 'ability', true);
+        });
+        break;
+      }
+      case 'inchar': {
+        const adj = adjEnemies(u);
+        ev({ tgs: adj.map((e) => e.uid) });
+        u.maxHp += v;
+        events.push({ t, k: 'heal', u: u.uid, amt: 0, hp: Math.round(u.hp), maxHp: Math.round(u.maxHp) });
+        heal(u, v);
+        later(300, () => { for (const e of adj) { push(u, e); stun(e, 1250); } });
+        break;
+      }
+      case 'relampago': {
+        const far = byDist(u, enemiesOf(u).filter(targetable)).reverse()[0] ?? tg;
+        if (!far) { ev(); break; }
+        ev({ tg: far.uid });
+        u.nextAct = t + 700;
+        later(250, () => {
+          if (!u.alive || !far.alive) return;
+          const spot = spotNear(far, u);
+          if (spot) moveTo(u, spot[0], spot[1], 'dash');
+          u.target = far;
+          const hits = enemiesOf(u).filter((e) => e === far || dist(e, far) <= 1);
+          fx(u, 'relampago', { tg: far.uid, tgs: hits.map((e) => e.uid), r: far.r, c: far.c });
+          for (const e of hits) { hit(e); stun(e, 750); }
+        });
+        break;
+      }
+      case 'rajadaduelo': {
+        if (!tg) { ev(); break; }
+        ev({ tg: tg.uid, n: ab.count ?? 5 });
+        u.nextAct = t + 900;
+        for (let i = 0; i < (ab.count ?? 5); i++) later(150 + i * 130, () => {
+          if (!u.alive) return;
+          const e = tg.alive ? tg : nearestEnemy(u);
+          if (!e) return;
+          fx(u, 'rajadaduelo', { tg: e.uid, n: i });
+          damage(u, e, v, 'phys', 'ability', true);
+          if (u.duelPct > 0 && u.duelStacks < 10) { u.duelStacks++; u.asPct += u.duelPct; }
+        });
+        break;
+      }
+      case 'cuspeacido': {
+        const hits = [...(tg ? [tg] : []), ...byDist(u, enemiesOf(u).filter((e) => e !== tg))].slice(0, ab.count ?? 3);
+        if (!hits.length) { ev(); break; }
+        ev({ tg: hits[0].uid, tgs: hits.map((e) => e.uid) });
+        later(350, () => { for (const e of hits) { hit(e); if (e.alive) { e.mrShredUntil = t + 4000; addDot(e, u, v * 0.05, 3000, 'magic', false, 'burn'); } } });
+        break;
+      }
+      case 'campotesla': {
+        const allies = alliesOf(u).filter((al) => dist(al, u) <= 2);
+        ev({ tgs: allies.map((p) => p.uid) });
+        const zx = x * (apOf(u) / 100);
+        for (const al of allies) {
+          addShield(al, v, 4000);
+          const e = nearestEnemy(al);
+          if (e) later(250, () => { if (e.alive) { fx(u, 'campotesla', { tg: e.uid, tgs: [al.uid] }); hit(e, zx, 'magic'); } });
+        }
+        break;
+      }
+      case 'devorar': {
+        if (!tg) { ev(); break; }
+        ev({ tg: tg.uid });
+        later(260, () => {
+          if (!u.alive || !tg.alive) return;
+          const dealt = hit(tg);
+          heal(u, Math.max(dealt, v * 0.4));
+          if (!tg.alive) {
+            const g = u.maxHp * (x / 100);
+            u.maxHp += g; u.hp += g;
+            status(u, 'rage', 1500);
+            events.push({ t, k: 'heal', u: u.uid, amt: Math.round(g), hp: Math.round(u.hp), maxHp: Math.round(u.maxHp) });
+          }
+        });
+        break;
+      }
+      case 'chuvagosma': {
+        const es = enemiesOf(u);
+        ev({ tgs: es.map((e) => e.uid) });
+        later(500, () => {
+          for (const e of es) { if (!e.alive) continue; hit(e); if (e.alive) { e.slowUntil = t + 2500; e.slowAmt = 0.4; status(e, 'slow', 2500); } }
+          for (const al of alliesOf(u)) if (al.mutPct > 0) mutate(al, true);
+        });
+        break;
+      }
       default:
         ev();
     }
@@ -1195,6 +1390,7 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
     if (u.has.has('machado') && tg.alive) damage(u, tg, tg.maxHp * 0.04, 'true', 'proc');
     if (u.has.has('chinelo') && tg.alive && u.atkCount % 4 === 0) { proc(u, 'chinelo', [tg.uid]); stun(tg, 1000); }
     if (u.has.has('megaseda')) u.asPct += 0.05;
+    if (u.duelPct > 0 && u.duelStacks < 10) { u.duelStacks++; u.asPct += u.duelPct; }
     if (u.has.has('coleteseda')) u.coleteStacks = Math.min(0.25, u.coleteStacks + 0.02);
     if (u.popAttacks > 0) { u.popAttacks--; splash(u, tg, u.popPct, 'estouro'); }
     if (u.piradoPct > 0 && u.atkCount % 3 === 0) splash(u, tg, u.piradoPct, null);
@@ -1288,6 +1484,8 @@ export function simulate(a: SideInput, b: SideInput, seed: number): CombatResult
     if (t - lastSecond >= 1000) {
       lastSecond = t;
       const sec = Math.round(t / 1000);
+      if (sec % 3 === 0) for (const u of units) if (u.alive && u.mutPct > 0) mutate(u);
+      if (sec % 4 === 0 && sec > 0) for (const sh of shocks) shock(sh);
       for (const u of units) {
         if (!u.alive) continue;
         if (u.regen > 0 && u.hp < u.maxHp) heal(u, (u.maxHp * u.regen) / 100);

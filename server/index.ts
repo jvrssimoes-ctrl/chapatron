@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ClientMsg } from '../shared/types';
+import { AVATAR_RE, type ClientMsg } from '../shared/types';
 import { Player, Room } from './room';
 
 // Em dev (--dev) o servidor fica sempre na 3001 e o Vite (5173) faz proxy do /ws.
@@ -81,7 +81,8 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
       player = res;
-      if (typeof msg.avatar === 'string' && /^[a-z]{3,12}:\d$/.test(msg.avatar)) player.avatar = msg.avatar;
+      if (typeof msg.avatar === 'string' && AVATAR_RE.test(msg.avatar)) player.avatar = msg.avatar;
+      if (Number.isFinite(Number(msg.lp))) player.lp = Math.max(0, Math.min(9999, Math.round(Number(msg.lp))));
       player.send({ t: 'joined', room: room.code, youId: player.id });
       if (room.phase === 'lobby') room.broadcastLobby();
       else {

@@ -6,7 +6,9 @@ export type TraitId =
   // expansão "Noite de Neon"
   | 'neon' | 'paranoico'
   // expansão "Horta Proibida"
-  | 'jardineiro' | 'muambeiro' | 'pirado';
+  | 'jardineiro' | 'muambeiro' | 'pirado'
+  // expansão "Laboratório Clandestino"
+  | 'mutante' | 'eletrico' | 'duelista';
 
 /** Papel do robô no combate (igual aos "arquétipos" de auto battler). */
 export type Role = 'tank' | 'fighter' | 'adcarry' | 'apcaster' | 'assassin' | 'support';
@@ -28,7 +30,12 @@ export type AbilityKind =
   | 'cupinzeiro' | 'chiclete' | 'fogueira' | 'radinho' | 'raiz' | 'tornado' | 'curto' | 'imantar'
   | 'espelho' | 'colheita' | 'sirene' | 'buraconegro' | 'marreta' | 'mudinha'
   // chefões do PvE
-  | 'enxame' | 'torrada' | 'sugada' | 'turbilhao' | 'congelar';
+  | 'enxame' | 'torrada' | 'sugada' | 'turbilhao' | 'congelar'
+  // Laboratório Clandestino
+  | 'gosma' | 'faisca' | 'estocada' | 'chicotada' | 'descarga' | 'finta' | 'inchar' | 'relampago' | 'rajadaduelo'
+  | 'cuspeacido' | 'campotesla' | 'devorar' | 'chuvagosma'
+  // efeitos de sinergia
+  | 'choque' | 'mutacao';
 
 export interface AbilityDef {
   kind: AbilityKind;
@@ -49,7 +56,8 @@ export type BodyType = 'box' | 'round' | 'tall' | 'wide' | 'tank';
 export type HeadType = 'square' | 'dome' | 'tv' | 'mushroom' | 'none';
 export type Accessory =
   | 'antenna' | 'leaf' | 'joint' | 'beanie' | 'bong' | 'headphones'
-  | 'shades' | 'smoke' | 'halo' | 'mohawk' | 'visor' | 'cape' | 'crown';
+  | 'shades' | 'smoke' | 'halo' | 'mohawk' | 'visor' | 'cape' | 'crown'
+  | 'goo' | 'bolt' | 'sword' | 'tentacles';
 
 export interface RobotLook {
   color: string;
@@ -179,10 +187,12 @@ export interface PublicPlayer {
   gold: number;
   board: BoardPreviewUnit[];
   augments: string[];
-  /** visual da Pequena Lenda ("especie:cor") */
+  /** visual da Pequena Lenda ("especie:cor[:chapeu:rosto:rastro]") */
   avatar: string;
   /** dupla (modo Dupla) ou -1 */
   team: number;
+  /** pontos de ranque (para o placar da galera) */
+  lp: number;
 }
 
 /** Orbe de saque no chão (o conteúdo só aparece ao pegar). */
@@ -210,7 +220,7 @@ export interface PrivateState {
   alive: boolean;
 }
 
-export interface LobbyPlayer { id: string; name: string; isBot: boolean; connected: boolean; avatar: string; team: number }
+export interface LobbyPlayer { id: string; name: string; isBot: boolean; connected: boolean; avatar: string; team: number; lp: number }
 
 /** normal · turbo (partida rápida) · dupla (2v2 com vida compartilhada) */
 export type GameMode = 'normal' | 'turbo' | 'dupla';
@@ -239,7 +249,7 @@ export type CombatEvent =
   | { t: number; k: 'fx'; u: number; ab: AbilityKind; tg?: number; tgs?: number[]; r?: number; c?: number; n?: number }
   | { t: number; k: 'spawn'; unit: CombatUnitInit; u: number; src: number }
   | { t: number; k: 'status'; u: number; s: StatusKind; dur: number }
-  | { t: number; k: 'heal'; u: number; amt: number; hp: number }
+  | { t: number; k: 'heal'; u: number; amt: number; hp: number; maxHp?: number }
   | { t: number; k: 'shield'; u: number; sh: number }
   | { t: number; k: 'death'; u: number }
   | { t: number; k: 'stun'; u: number; dur: number }
@@ -260,8 +270,8 @@ export interface CombatResult {
 // ---------- mensagens ----------
 
 export type ClientMsg =
-  | { t: 'create'; name: string; token: string; avatar?: string }
-  | { t: 'join'; name: string; room: string; token: string; avatar?: string }
+  | { t: 'create'; name: string; token: string; avatar?: string; lp?: number }
+  | { t: 'join'; name: string; room: string; token: string; avatar?: string; lp?: number }
   /** muda o visual da Pequena Lenda ("especie:cor") */
   | { t: 'avatar'; look: string }
   | { t: 'addBot' }
@@ -320,3 +330,6 @@ export type ServerMsg =
   | { t: 'portal'; options: string[]; votes: Record<string, number>; endsIn: number; chosen: string | null }
   | { t: 'toast'; msg: string; kind?: 'info' | 'good' | 'bad' }
   | { t: 'error'; msg: string };
+
+/** Visual da Pequena Lenda: espécie:cor[:chapéu:rosto:rastro] */
+export const AVATAR_RE = /^[a-z]{3,12}:\d(:[a-z]{0,12}){0,3}$/;

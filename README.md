@@ -86,6 +86,10 @@ O container tem verificação de saúde em `/health`. Se a conexão cair, o jogo
 - **Painel de combate**: a aba Dano abre sozinha na luta e mostra dano causado, recebido e cura/escudo de cada robô. Ícones em cima da vida mostram status (💫 atordoado, 🔥 queimando, 🙈 cego, 🔇 calado...).
 - **Celular**: dá pra jogar deitado no celular. Arraste com o dedo, toque num item para ver a dica, segure num robô para abrir o painel e segure na loja para ler sem comprar.
 - **Ajudas**: ao arrastar um robô o alcance dele aparece no tabuleiro, e as chances de cada custo na loja ficam embaixo do nível.
+- **Expansão Laboratório Clandestino**: 13 robôs novos (agora são 62) e 3 sinergias: 🧪 **Mutantes** (crescem a cada 3s de combate), ⚡ **Eletrizados** (raios periódicos que queimam mana) e 🤺 **Duelistas** (ganham velocidade de ataque a cada ataque). Catálogo com todos os robôs em `CHAPATRON-catalogo-robos.pdf` (gerado a partir de `/catalogo.html` no modo dev).
+- **Temporadas**: uma por mês, com nome próprio. Na virada os pontos são reiniciados em parte e a melhor marca da temporada fica guardada no perfil.
+- **Placar da galera**: o ranque de cada jogador aparece na sala, e o perfil e o menu mostram o placar dos amigos com quem você jogou (quantas partidas juntos e quem ficou na frente).
+- **Pequena Lenda personalizada**: 7 espécies (novas: Abacatinho, Cactolino, Polvilho), 7 chapéus, 5 rostos, 6 rastros e 8 emotes extras. Parte vem liberada; o resto sai por conquistas (5 novas) e por ranque.
 ## Sinergias
 
 - **Verticais** (2/4/6): Verdinhos, Fumaceiros, Laricados, Enferrujados, Cósmicos, Bolados — e Atiradores/Brisados (2/4). Ficam muito fortes quando você fecha tudo.

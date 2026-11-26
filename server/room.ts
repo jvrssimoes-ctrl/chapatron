@@ -8,14 +8,14 @@ import { AUGMENTS, augmentPool, traitBonus } from '../shared/augments';
 import { computeTraits, emblemBonus, mergeBonus } from '../shared/traits';
 import { ARTIFACTS, COMPLETED, COMPONENTS, EMBLEMS, ITEMS, RADIANTS, SPECIALS, boardCap, combine, emblemAllowed, isAnvil, isArtifact, isComponent, isEmblem, isRadiant, isSpecial, itemSlots } from '../shared/items';
 import { BENCH_SIZE, BOARD_ROWS, COLS } from '../shared/hex';
-import type { AugTier, BoardPreviewUnit, CarouselUnit, Choice, ClientMsg, CombatResult, GameMode, Loc, LootOrb, OrbContent, OrbKind, OwnedUnit, Phase, PublicPlayer, ServerMsg } from '../shared/types';
+import { AVATAR_RE, type AugTier, type BoardPreviewUnit, type CarouselUnit, type Choice, type ClientMsg, type CombatResult, type GameMode, type Loc, type LootOrb, type OrbContent, type OrbKind, type OwnedUnit, type Phase, type PublicPlayer, type ServerMsg } from '../shared/types';
 import { MODES, modeDamageMult, modePlanningMult, turboIncome, turboLevel } from '../shared/modes';
 import { simulate, type SideInput } from './combat';
 import { PORTALS, PORTAL_IDS, TURBO_SKIP_PORTALS, interestCap, rerollCost } from '../shared/portals';
 import { botChoose, botPlan } from './bot';
 
 const MAX_PLAYERS = 8;
-const EMOTE_COUNT = 8;
+const EMOTE_COUNT = 16;
 const PLANNING_MS = 30000;
 const FIRST_PLANNING_MS = 20000;
 const CHOICE_EXTRA_MS = 10000;
@@ -64,6 +64,7 @@ export class Player {
   lastEmoteAt = 0;
   lastOpp: string | null = null;
   avatar = '';
+  lp = 0;
   opponentId: string | null = null;
   /** modo Dupla: índice da dupla (-1 = sem dupla) */
   team = -1;
@@ -202,7 +203,7 @@ export class Room {
   broadcastLobby() {
     const msg: ServerMsg = {
       t: 'lobby', room: this.code, hostId: this.hostId,
-      players: this.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, connected: p.connected, avatar: p.avatar, team: this.mode === 'dupla' ? p.team : -1 })),
+      players: this.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, connected: p.connected, avatar: p.avatar, team: this.mode === 'dupla' ? p.team : -1, lp: p.lp })),
       mode: this.mode,
     };
     for (const p of this.players) p.send(msg);
@@ -225,7 +226,7 @@ export class Room {
           const free = BOT_NAMES.filter((n) => !used.has(`🤖 ${n}`));
           const name = free[Math.floor(Math.random() * free.length)] ?? `Bot ${this.playerCounter}`;
           const bot = new Player(`p${this.playerCounter++}`, '', `🤖 ${name}`, true);
-          bot.avatar = `${pick(['nuvem', 'cogumelo', 'robozinho', 'geleca'])}:${Math.floor(Math.random() * 8)}`;
+          bot.avatar = `${pick(['nuvem', 'cogumelo', 'robozinho', 'geleca', 'abacate', 'cacto', 'polvo'])}:${Math.floor(Math.random() * 8)}:${pick(['', '', 'bone', 'palha', 'gorro', 'cartola'])}`;
           this.players.push(bot);
           if (this.mode === 'dupla') this.assignTeams();
         }
@@ -295,7 +296,7 @@ export class Room {
     if (msg.t === 'vote') { this.vote(p, Number(msg.i)); return; }
     if (msg.t === 'avatar') {
       const look = String(msg.look ?? '');
-      if (!/^[a-z]{3,12}:\d$/.test(look) || look === p.avatar) return;
+      if (!AVATAR_RE.test(look) || look === p.avatar) return;
       p.avatar = look;
       if (this.phase === 'lobby') this.broadcastLobby(); else this.broadcastState();
       return;
@@ -1453,7 +1454,7 @@ export class Room {
   publicPlayers(): PublicPlayer[] {
     return this.players.map((p) => ({
       id: p.id, name: p.name, hp: p.hp, level: p.level, alive: p.alive, isBot: p.isBot,
-      connected: p.connected, streak: p.streak, place: p.place, gold: p.gold, augments: p.augments, avatar: p.avatar,
+      connected: p.connected, streak: p.streak, place: p.place, gold: p.gold, augments: p.augments, avatar: p.avatar, lp: p.lp,
       board: this.boardSnapshot(p), team: this.isDupla() ? p.team : -1,
     }));
   }

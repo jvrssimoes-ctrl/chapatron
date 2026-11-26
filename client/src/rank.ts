@@ -34,6 +34,21 @@ export function lpDelta(place: number, total: number) {
   return DELTA_8[Math.max(0, Math.min(7, k))];
 }
 
+// ---------------- temporadas (uma por mês) ----------------
+const SEASON_NAMES = [
+  'Brisa de Estreia', 'Laboratório Clandestino', 'Verão da Larica', 'Noite de Neon', 'Horta Proibida', 'Ferro-Velho Fest',
+  'Chuva de Gosma', 'Baile Cósmico', 'Fumaça Dourada', 'Pane no Sistema', 'Colheita Maldita', 'Festa Infinita',
+];
+/** Temporada atual: começa em nov/2026 (Temporada 1) e vira todo dia 1º. */
+export function seasonOf(at = Date.now()) {
+  const d = new Date(at);
+  const n = Math.max(1, (d.getFullYear() - 2026) * 12 + (d.getMonth() - 10) + 1);
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
+  return { n, name: SEASON_NAMES[(n - 1) % SEASON_NAMES.length], end, daysLeft: Math.max(0, Math.ceil((end - at) / 86400000)) };
+}
+/** Pontos que sobram na virada da temporada (reset parcial). */
+export const seasonCarry = (lp: number) => Math.floor(Math.min(lp, 2000) * 0.4);
+
 export function rankBadge(lp: number, cls = '') {
   const r = rankOf(lp);
   return `<span class="rank-badge ${cls}" style="--rc:${r.tier.color}" title="${r.label} · ${r.pts} pontos">${r.tier.icon} ${r.label}</span>`;

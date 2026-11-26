@@ -179,6 +179,7 @@ export class Replay {
         break;
       case 'heal':
         u.hp = e.hp;
+        if (e.maxHp) u.maxHp = e.maxHp;
         if (e.amt >= 5) text(`+${e.amt}`, '#5dff7a', 0.85);
         break;
       case 'shield':
@@ -369,6 +370,19 @@ export class Replay {
         case 'sugada': runeAt(u.r, u.c, 1100, 3.6, color); novaAt(u.r, u.c, 0, 3.2, '#140a2a', 1100); swirl(e.u, 0, color); slamU(e.u, 750, 2.2, color); text('SSSHHHUUUP!', '#9fe8ff', 1.2, e.u); this.snd('whoosh', 0, 100); this.snd('boom', 0, 750); break;
         case 'turbilhao': swirl(e.u, 0, color); text('🌀', '#ff5d73', 1.4, e.u); this.snd('whoosh', 0); break;
         case 'congelar': { const h = hex(); if (h) { runeAt(h[0], h[1], 900, 3.2, color); novaAt(h[0], h[1], 450, 2.8, '#e8f8ff', 900); slamAt(h[0], h[1], 450, 2.4, color); } for (const id of tgs) strike(id, 450, '#e8f8ff'); text('❄️ CONGELA!', '#bfe9ff', 1.3, e.u); this.snd('boom', 0, 450); break; }
+        // Laboratório Clandestino
+        case 'gosma': bubble(e.u, 0, '#b6ff3d'); slamU(e.u, 150, 1.3, '#b6ff3d'); puffAt(u.r, u.c, 100, true, 900); for (const id of tgs) strike(id, 200, '#b6ff3d'); this.snd('drain', 0); break;
+        case 'faisca': { let prev = e.u; tgs.forEach((id, i) => { zap(prev, id, 180 + i * 140, color); nova(id, 220 + i * 140, i ? 0.4 : 0.6); prev = id; }); this.snd('zap', 0, 200); break; }
+        case 'estocada': case 'finta': if (tg) swirl(e.u, 0, color); if (kind === 'finta') puffAt(u.r, u.c, 0, false, 700); this.snd('slash', 0, 150); break;
+        case 'chicotada': for (const id of tgs) { beam(id, 100, color); strike(id, 280, color); } swirl(e.u, 0, color); this.snd('slash', 0, 280); break;
+        case 'descarga': { const h = hex(); if (h) { runeAt(h[0], h[1], 700, 2.2, color); novaAt(h[0], h[1], 320, 1.9, color, 700); } for (const id of tgs) { zap(e.u, id, 200, color); strike(id, 320, color); } this.snd('zap', 0, 320); break; }
+        case 'inchar': pillar(e.u, 0, '#b6ff3d'); slamU(e.u, 300, 1.6, '#b6ff3d'); text('INCHOU!', '#d8ff5d', 1.1, e.u); for (const id of tgs) strike(id, 300, color); this.snd('slam', 0, 300); break;
+        case 'relampago': if (tg) { zap(e.u, tg, 80, '#ffffff'); zap(e.u, tg, 160, color); } this.snd('zap', 0); break;
+        case 'rajadaduelo': swirl(e.u, 0, color); this.snd('shoot', 0, 150); break;
+        case 'cuspeacido': for (const id of tgs) { const t1 = proj(id, 220, color); nova(id, t1, 0.55); } this.snd('drain', 0, 250); break;
+        case 'campotesla': slamU(e.u, 0, 2.6, color); for (const id of tgs) { zap(e.u, id, 100, color); bubble(id, 200, color); } this.snd('shield', 0); this.snd('zap', 0, 250); break;
+        case 'devorar': if (tg) { strike(tg, 260, '#b6ff3d'); fx.push({ k: 'drain', from: e.u, to: tg, start: now + 260, dur: 700, color }); nova(tg, 260, 0.9, '#b6ff3d'); } this.snd('drain', 0, 260); break;
+        case 'chuvagosma': for (const id of tgs) { const p = posOf(id); if (p) { fx.push({ k: 'meteor', r: p[0], c: p[1], start: now + Math.random() * 200, dur: 700 }); novaAt(p[0], p[1], 500, 0.9, color, 600); } } text('🧪 CHUVA DE GOSMA!', '#b6ff3d', 1.2, e.u); this.snd('whoosh', 0); this.snd('boom', 0, 500); break;
         default: if (tg) { const t1 = proj(tg, ranged ? 200 : 80); nova(tg, t1, 0.6); }
       }
       return;
@@ -400,6 +414,12 @@ export class Replay {
       case 'colheita': if (tg) { text('COLHIDO!', '#c4ff9e', 1.2, tg); strike(tg, 0, '#ffffff'); } break;
       case 'bigbang': { const h = hex(); if (h) meteorAt(h[0], h[1], 0, 1); break; }
       case 'turbilhao': slamU(e.u, 0, 2.3, color); for (const id of tgs) strike(id, 0, color); this.snd('slash', 0); break;
+      case 'estocada': case 'finta': if (tg) { strike(tg, 0, kind === 'finta' ? '#ffffff' : color); nova(tg, 0, 0.45, color); } this.snd('slash', 0); break;
+      case 'rajadaduelo': if (tg) { const t1 = proj(tg, 0, color, { bolt: true, big: false }); nova(tg, t1, 0.35, color); } this.snd('shoot', 60); break;
+      case 'relampago': { const h = hex(); if (h) { novaAt(h[0], h[1], 0, 1.6, '#fff7a0', 450); slamAt(h[0], h[1], 0, 1.4, color); } pillar(e.u, 0, color); for (const id of tgs) strike(id, 0, color); this.snd('boom', 0); break; }
+      case 'campotesla': if (tg && tgs[0]) zap(tgs[0], tg, 0, color); break;
+      case 'mutacao': nova(e.u, 0, 0.55, '#b6ff3d', 500); if ((e.n ?? 0) >= 5) text('🧪 MUTAÇÃO MÁXIMA', '#b6ff3d', 0.9, e.u); break;
+      case 'choque': for (const id of tgs) { fx.push({ k: 'strike', u: id, start: now + 120, dur: 420, color: '#fff7a0' }); zap(e.u, id, 0, '#ffe93d'); nova(id, 200, 0.5, '#ffe93d', 400); } this.snd('zap', 0, 200); break;
       default: break;
     }
   }

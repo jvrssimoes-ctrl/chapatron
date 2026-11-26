@@ -4,32 +4,69 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 // Pequena Lenda do CHAPATRON: cada jogador escolhe uma espécie e uma cor.
 // O visual é todo procedural (sem arquivos), com olhos, piscada e quique.
 
-export type AvatarSpecies = 'nuvem' | 'cogumelo' | 'robozinho' | 'geleca';
-export interface AvatarLook { species: AvatarSpecies; color: number }
+export type AvatarSpecies = 'nuvem' | 'cogumelo' | 'robozinho' | 'geleca' | 'abacate' | 'cacto' | 'polvo';
+export interface AvatarLook { species: AvatarSpecies; color: number; hat: string; face: string; trail: string }
 
-export const AVATAR_SPECIES: { id: AvatarSpecies; name: string; icon: string; desc: string }[] = [
+export interface Cosmetic { id: string; name: string; icon: string; desc?: string }
+export const AVATAR_SPECIES: (Cosmetic & { id: AvatarSpecies; desc: string })[] = [
   { id: 'nuvem', name: 'Fumacinha', icon: '☁️', desc: 'Uma nuvenzinha fofa que deixa rastro de fumaça.' },
   { id: 'cogumelo', name: 'Cogubolota', icon: '🍄', desc: 'Cogumelo saltitante com chapéu pintado.' },
   { id: 'robozinho', name: 'Robolinho', icon: '🤖', desc: 'Mini robô com telinha no rosto e antena.' },
   { id: 'geleca', name: 'Geleca', icon: '💧', desc: 'Gosma brilhante que balança pra todo lado.' },
+  { id: 'abacate', name: 'Abacatinho', icon: '🥑', desc: 'Abacate gordinho com caroço de estimação na barriga.' },
+  { id: 'cacto', name: 'Cactolino', icon: '🌵', desc: 'Cacto de vasinho com florzinha na cabeça. Abraço por sua conta e risco.' },
+  { id: 'polvo', name: 'Polvilho', icon: '🐙', desc: 'Polvo de laboratório que anda balançando os oito... seis tentáculos.' },
+];
+export const AVATAR_HATS: Cosmetic[] = [
+  { id: '', name: 'Nada', icon: '🚫' },
+  { id: 'bone', name: 'Boné', icon: '🧢' },
+  { id: 'palha', name: 'Chapéu de Palha', icon: '👒' },
+  { id: 'gorro', name: 'Gorro da Brisa', icon: '🧶' },
+  { id: 'chef', name: 'Chapéu de Mestre-Cuca', icon: '👨‍🍳' },
+  { id: 'cartola', name: 'Cartola', icon: '🎩' },
+  { id: 'aureola', name: 'Auréola', icon: '😇' },
+  { id: 'coroa', name: 'Coroa', icon: '👑' },
+];
+export const AVATAR_FACES: Cosmetic[] = [
+  { id: '', name: 'Nada', icon: '🚫' },
+  { id: 'escuro', name: 'Óculos Escuros', icon: '🕶️' },
+  { id: 'redondo', name: 'Óculos Redondos', icon: '👓' },
+  { id: 'bigode', name: 'Bigodão', icon: '🥸' },
+  { id: 'mascara', name: 'Faixa Ninja', icon: '🥷' },
+  { id: 'estrela', name: 'Óculos de Estrela', icon: '🤩' },
+];
+export const AVATAR_TRAILS: (Cosmetic & { color: string[]; additive?: boolean; rise?: number })[] = [
+  { id: '', name: 'Poeirinha', icon: '💨', color: ['#d8ccff'] },
+  { id: 'fumaca', name: 'Fumaça Verde', icon: '🌿', color: ['#7aff8a', '#4ad86a'], rise: 0.8 },
+  { id: 'bolha', name: 'Bolhas', icon: '🫧', color: ['#9fe8ff', '#ffffff'], additive: true, rise: 1.1 },
+  { id: 'coracao', name: 'Coraçõezinhos', icon: '💖', color: ['#ff7ad9', '#ff3d7a'], additive: true, rise: 1.3 },
+  { id: 'faisca', name: 'Faíscas', icon: '⚡', color: ['#ffe93d', '#fff7a0'], additive: true, rise: 1.8 },
+  { id: 'estrela', name: 'Poeira Estelar', icon: '✨', color: ['#ffd23f', '#fff3c0'], additive: true, rise: 0.6 },
+  { id: 'arcoiris', name: 'Arco-Íris', icon: '🌈', color: ['#ff5d73', '#ffb347', '#ffe066', '#5dff7a', '#7ad7ff', '#c58bff'], additive: true, rise: 0.7 },
 ];
 export const AVATAR_COLORS = ['#7ad7ff', '#ff7ad9', '#9bff5d', '#ffd23f', '#ff8a3d', '#c58bff', '#5dffe0', '#ff5d73'];
 
 export function hashLook(id: string): AvatarLook {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return { species: 'nuvem', color: h % AVATAR_COLORS.length };
+  return { species: 'nuvem', color: h % AVATAR_COLORS.length, hat: '', face: '', trail: '' };
 }
 
-/** "especie:cor" → look (com valores seguros) */
+const okId = (list: Cosmetic[], v: string | undefined) => (list.some((x) => x.id === v) ? v! : '');
+/** "especie:cor[:chapeu:rosto:rastro]" → look (com valores seguros) */
 export function parseLook(s: string | undefined | null, fallbackId = ''): AvatarLook {
-  const [sp, c] = String(s ?? '').split(':');
+  const [sp, c, hat, face, trail] = String(s ?? '').split(':');
   const species = AVATAR_SPECIES.some((x) => x.id === sp) ? (sp as AvatarSpecies) : null;
   const color = Number(c);
   if (!species || !(color >= 0 && color < AVATAR_COLORS.length)) return hashLook(fallbackId);
-  return { species, color };
+  return { species, color, hat: okId(AVATAR_HATS, hat), face: okId(AVATAR_FACES, face), trail: okId(AVATAR_TRAILS, trail) };
 }
-export const lookKey = (l: AvatarLook) => `${l.species}:${l.color}`;
+export const lookKey = (l: AvatarLook) => {
+  const extra = [l.hat, l.face, l.trail];
+  while (extra.length && !extra[extra.length - 1]) extra.pop();
+  return [l.species, l.color, ...extra].join(':');
+};
+export const trailOf = (l: AvatarLook) => AVATAR_TRAILS.find((x) => x.id === l.trail) ?? AVATAR_TRAILS[0];
 
 export interface AvatarModel {
   root: THREE.Group;
@@ -90,6 +127,8 @@ export function buildAvatar(look: AvatarLook): AvatarModel {
 
   let height = 1.0;
   const wobblers: THREE.Object3D[] = [];
+  // onde vão chapéu e rosto (topo da cabeça, altura/profundidade dos olhos, largura)
+  let hatY = 0.95, eyeY = 0.55, eyeZ = 0.33, headW = 0.36;
   if (look.species === 'nuvem') {
     const cloud = mat(base.clone().lerp(new THREE.Color('#ffffff'), 0.2).multiplyScalar(0.62), 0.0, 0.95);
     const puffs: [number, number, number, number][] = [
@@ -101,10 +140,13 @@ export function buildAvatar(look: AvatarLook): AvatarModel {
     belly.scale.set(1.1, 0.85, 0.6);
     addEyes(0.55, 0.33);
     cheeks(0.45, 0.3, 0.27);
-    const leaf = mesh(g(new THREE.ConeGeometry(0.09, 0.32, 6)), mat('#5dff7a', 0.3, 0.6), 0.05, 0.98, 0);
-    leaf.scale.set(1, 1, 0.35);
-    wobblers.push(leaf);
+    if (!look.hat) {
+      const leaf = mesh(g(new THREE.ConeGeometry(0.09, 0.32, 6)), mat('#5dff7a', 0.3, 0.6), 0.05, 0.98, 0);
+      leaf.scale.set(1, 1, 0.35);
+      wobblers.push(leaf);
+    }
     height = 1.05;
+    hatY = 0.9; eyeY = 0.55; eyeZ = 0.36; headW = 0.4;
   } else if (look.species === 'cogumelo') {
     mesh(g(new THREE.CylinderGeometry(0.26, 0.32, 0.55, 18)), mat('#f3e6cf', 0.05, 0.8), 0, 0.3, 0);
     const capPivot = new THREE.Group();
@@ -123,6 +165,7 @@ export function buildAvatar(look: AvatarLook): AvatarModel {
     addEyes(0.36, 0.27, 0.12, 0.85);
     cheeks(0.26, 0.28, 0.2);
     height = 0.95;
+    hatY = 0.9; eyeY = 0.36; eyeZ = 0.29; headW = 0.3;
   } else if (look.species === 'robozinho') {
     const shell = mat(base.clone().multiplyScalar(0.75), 0.08, 0.35, { metalness: 0.5 });
     mesh(g(new RoundedBoxGeometry(0.62, 0.55, 0.5, 4, 0.12)), shell, 0, 0.42, 0);
@@ -141,6 +184,81 @@ export function buildAvatar(look: AvatarLook): AvatarModel {
     }
     addEyes(0.47, 0.25, 0.1, 0.7);
     height = 1.05;
+    hatY = 0.7; eyeY = 0.47; eyeZ = 0.28; headW = 0.34;
+  } else if (look.species === 'abacate') {
+    const skin = mat(base.clone().lerp(new THREE.Color('#2f6a1a'), 0.55), 0.06, 0.7);
+    const flesh = mat('#d8f08a', 0.12, 0.6);
+    const low = mesh(sphere(0.42, 22), skin, 0, 0.4, 0);
+    low.scale.set(1, 0.95, 0.9);
+    const up = mesh(sphere(0.3, 20), skin, 0, 0.78, -0.02);
+    up.scale.set(1, 1.05, 0.9);
+    const inner = mesh(sphere(0.36, 20), flesh, 0, 0.47, 0.1);
+    inner.scale.set(0.9, 0.95, 0.75);
+    const seed = mesh(sphere(0.16, 16), mat('#8a4a1f', 0.05, 0.4), 0, 0.38, 0.32);
+    seed.scale.set(1, 1.1, 0.7);
+    wobblers.push(up);
+    addEyes(0.74, 0.25, 0.12, 0.85);
+    cheeks(0.64, 0.24, 0.2);
+    height = 1.1;
+    hatY = 1.05; eyeY = 0.74; eyeZ = 0.27; headW = 0.3;
+  } else if (look.species === 'cacto') {
+    const potM = mat('#c8683a', 0.04, 0.8);
+    mesh(g(new THREE.CylinderGeometry(0.3, 0.24, 0.3, 18)), potM, 0, 0.15, 0);
+    mesh(g(new THREE.CylinderGeometry(0.33, 0.33, 0.07, 18)), potM, 0, 0.3, 0);
+    const cact = mat(base.clone().lerp(new THREE.Color('#3aa04a'), 0.55), 0.08, 0.55);
+    mesh(g(new THREE.CapsuleGeometry(0.22, 0.4, 6, 16)), cact, 0, 0.66, 0);
+    const armPivots: THREE.Group[] = [];
+    for (const sx of [-1, 1]) {
+      const p = new THREE.Group();
+      p.position.set(sx * 0.22, 0.62 + (sx > 0 ? 0.06 : 0), 0);
+      body.add(p);
+      const a1 = mesh(g(new THREE.CapsuleGeometry(0.075, 0.12, 4, 10)), cact, sx * 0.1, 0, 0, p);
+      a1.rotation.z = Math.PI / 2;
+      mesh(g(new THREE.CapsuleGeometry(0.075, 0.14, 4, 10)), cact, sx * 0.18, 0.1, 0, p);
+      armPivots.push(p);
+    }
+    wobblers.push(...armPivots);
+    const spineM = mat('#fff6d8', 0.1, 0.5);
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2 + 0.2, y = 0.5 + (i % 3) * 0.16;
+      if (Math.cos(a) > 0.55) continue; // deixa o rosto livre
+      const sp = mesh(g(new THREE.ConeGeometry(0.012, 0.06, 4)), spineM, Math.sin(a) * 0.225, y, Math.cos(a) * 0.225);
+      sp.rotation.set(Math.PI / 2 * Math.cos(a), 0, -Math.PI / 2 * Math.sin(a));
+    }
+    if (!look.hat) {
+      const fl = mat('#ff7ad9', 0.4, 0.5);
+      for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; mesh(sphere(0.055, 10), fl, Math.cos(a) * 0.06, 1.1, Math.sin(a) * 0.06); }
+      mesh(sphere(0.04, 10), mat('#ffe066', 0.6, 0.4), 0, 1.12, 0);
+    }
+    addEyes(0.7, 0.2, 0.09, 0.75);
+    cheeks(0.6, 0.2, 0.15);
+    height = 1.15;
+    hatY = 1.06; eyeY = 0.7; eyeZ = 0.22; headW = 0.25;
+  } else if (look.species === 'polvo') {
+    const skin = mat(base.clone().multiplyScalar(0.85), 0.1, 0.45);
+    const head = mesh(sphere(0.38, 24), skin, 0, 0.62, -0.02);
+    head.scale.set(1, 1.08, 0.95);
+    wobblers.push(head);
+    const spotM = mat(base.clone().lerp(new THREE.Color('#ffffff'), 0.4), 0.15, 0.5);
+    for (const [x, y, z] of [[0.22, 0.86, -0.15], [-0.2, 0.9, -0.1], [0.05, 0.98, -0.2]]) mesh(sphere(0.05, 8), spotM, x, y, z).scale.set(1, 0.5, 1);
+    const tents: THREE.Group[] = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+      const p = new THREE.Group();
+      p.position.set(Math.sin(a) * 0.24, 0.32, Math.cos(a) * 0.24);
+      p.rotation.y = a;
+      body.add(p);
+      const t1 = mesh(g(new THREE.CapsuleGeometry(0.07, 0.18, 4, 10)), skin, 0, -0.08, 0.06, p);
+      t1.rotation.x = 0.7;
+      const t2 = mesh(sphere(0.06, 10), skin, 0, -0.18, 0.2, p);
+      t2.scale.set(1, 0.8, 1.2);
+      tents.push(p);
+    }
+    wobblers.push(...tents);
+    addEyes(0.6, 0.34, 0.15, 1);
+    cheeks(0.5, 0.33, 0.27);
+    height = 1.05;
+    hatY = 1.0; eyeY = 0.6; eyeZ = 0.36; headW = 0.38;
   } else {
     // geleca
     const goo = mat(base.clone().multiplyScalar(0.8), 0.25, 0.15, { transparent: true, opacity: 0.88, metalness: 0.1 });
@@ -154,6 +272,116 @@ export function buildAvatar(look: AvatarLook): AvatarModel {
     addEyes(0.48, 0.35, 0.15, 0.95);
     cheeks(0.38, 0.38, 0.28);
     height = 0.9;
+    hatY = 0.74; eyeY = 0.48; eyeZ = 0.38; headW = 0.4;
+  }
+
+  // ---------------- chapéu ----------------
+  if (look.hat) {
+    const hg = new THREE.Group();
+    hg.position.set(0, hatY - 0.03, 0);
+    hg.scale.setScalar(headW / 0.36);
+    body.add(hg);
+    const H = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0) => mesh(geo, m, x, y, z, hg);
+    const cyl = (rt: number, rb: number, h: number, s = 24) => g(new THREE.CylinderGeometry(rt, rb, h, s));
+    switch (look.hat) {
+      case 'bone': {
+        const m = mat(base.clone().lerp(new THREE.Color('#ff3d6b'), 0.6), 0.08, 0.6);
+        const dome = H(g(new THREE.SphereGeometry(0.27, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2)), m);
+        dome.scale.set(1, 0.75, 1);
+        const visor = H(cyl(0.2, 0.2, 0.025, 20), m, 0, 0.01, 0.2);
+        visor.scale.set(1, 1, 0.75);
+        H(sphere(0.035, 8), mat('#ffffff', 0.2), 0, 0.2, 0);
+        break;
+      }
+      case 'palha': {
+        const m = mat('#e8c878', 0.05, 0.9);
+        H(cyl(0.48, 0.5, 0.03, 28), m, 0, 0.01, 0);
+        H(cyl(0.22, 0.25, 0.2, 22), m, 0, 0.11, 0);
+        H(cyl(0.252, 0.252, 0.05, 22), mat('#d8452e', 0.1, 0.7), 0, 0.05, 0);
+        break;
+      }
+      case 'gorro': {
+        ['#e53935', '#fdd835', '#43a047'].forEach((c, i) => H(cyl(0.27 - i * 0.06, 0.29 - i * 0.06, 0.1), mat(c, 0.05, 0.9), 0, 0.03 + i * 0.09, 0));
+        H(sphere(0.07, 12), mat('#43a047', 0.05, 0.9), 0, 0.32, 0);
+        break;
+      }
+      case 'chef': {
+        const m = mat('#ffffff', 0.12, 0.8);
+        H(cyl(0.24, 0.22, 0.18, 22), m, 0, 0.09, 0);
+        for (const [x, z] of [[0, 0], [0.13, 0.06], [-0.13, 0.06], [0.06, -0.12], [-0.08, -0.1]]) H(sphere(0.14, 14), m, x, 0.26, z);
+        break;
+      }
+      case 'cartola': {
+        const m = mat('#15121e', 0.02, 0.4);
+        H(cyl(0.36, 0.36, 0.03, 26), m, 0, 0.015, 0);
+        H(cyl(0.21, 0.22, 0.34, 22), m, 0, 0.19, 0);
+        H(cyl(0.225, 0.225, 0.06, 22), mat(base, 0.4, 0.5), 0, 0.07, 0);
+        break;
+      }
+      case 'aureola': {
+        const halo = H(g(new THREE.TorusGeometry(0.22, 0.03, 10, 32)), mat('#fff3a0', 1.6, 0.3), 0, 0.2, 0);
+        halo.rotation.x = Math.PI / 2;
+        halo.castShadow = false;
+        wobblers.push(hg);
+        break;
+      }
+      case 'coroa': {
+        const gold = mat('#ffd23f', 0.35, 0.25, { metalness: 0.9 });
+        const ring = H(g(new THREE.CylinderGeometry(0.22, 0.21, 0.1, 22, 1, true)), gold, 0, 0.05, 0);
+        (ring.material as THREE.Material).side = THREE.DoubleSide;
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          H(g(new THREE.ConeGeometry(0.04, 0.13, 6)), gold, Math.cos(a) * 0.22, 0.16, Math.sin(a) * 0.22);
+        }
+        H(g(new THREE.OctahedronGeometry(0.045)), mat('#5dff7a', 1.2, 0.2), 0, 0.06, 0.225);
+        break;
+      }
+    }
+  }
+  // ---------------- rosto ----------------
+  if (look.face) {
+    const fg = new THREE.Group();
+    fg.position.set(0, eyeY, eyeZ + 0.06);
+    const k = headW / 0.36;
+    fg.scale.setScalar(k);
+    body.add(fg);
+    const F = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0) => { const o = mesh(geo, m, x, y, z, fg); o.castShadow = false; return o; };
+    const sp = 0.15 / k * (look.species === 'robozinho' ? 0.7 : look.species === 'cacto' ? 0.62 : look.species === 'cogumelo' ? 0.8 : 1);
+    switch (look.face) {
+      case 'escuro': {
+        const lens = mat('#0d0d12', 0.05, 0.08, { metalness: 0.6 });
+        for (const sx of [-1, 1]) { const l = F(g(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 18)), lens, sx * sp, 0, 0); l.rotation.x = Math.PI / 2; l.scale.set(1.15, 1, 0.85); }
+        F(g(new THREE.BoxGeometry(sp * 1.2, 0.025, 0.025)), lens, 0, 0.02, 0);
+        break;
+      }
+      case 'redondo': {
+        const fr = mat('#c8a040', 0.2, 0.3, { metalness: 0.8 });
+        for (const sx of [-1, 1]) F(g(new THREE.TorusGeometry(0.095, 0.016, 8, 24)), fr, sx * sp, 0, 0);
+        F(g(new THREE.BoxGeometry(sp * 0.9, 0.018, 0.018)), fr, 0, 0.02, 0);
+        break;
+      }
+      case 'bigode': {
+        const m = mat('#3a2418', 0.02, 0.8);
+        for (const sx of [-1, 1]) { const b = F(g(new THREE.CapsuleGeometry(0.035, 0.12, 4, 8)), m, sx * 0.08, -0.14, 0); b.rotation.z = sx * 1.25; }
+        break;
+      }
+      case 'mascara': {
+        const m = mat('#1a1a2a', 0.02, 0.7);
+        // faixa atrás dos olhos (eles furam a faixa)
+        F(g(new THREE.BoxGeometry(sp * 2 + 0.28, 0.11, 0.03)), m, 0, 0.0, -0.045);
+        const tail = F(g(new THREE.BoxGeometry(0.04, 0.16, 0.02)), mat('#d8452e', 0.1, 0.7), sp + 0.16, -0.06, -0.1);
+        tail.rotation.z = -0.5;
+        break;
+      }
+      case 'estrela': {
+        const m = mat('#ff3df0', 0.8, 0.3);
+        const shape = new THREE.Shape();
+        for (let i = 0; i < 10; i++) { const r = i % 2 ? 0.05 : 0.11, a = (i / 10) * Math.PI * 2 + Math.PI / 2; shape[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r); }
+        const sg = g(new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: false }));
+        for (const sx of [-1, 1]) F(sg, m, sx * sp, 0, 0);
+        break;
+      }
+    }
   }
 
   // sombra fake no chão

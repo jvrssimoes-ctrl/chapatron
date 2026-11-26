@@ -989,7 +989,7 @@ body:has(#choice:not(.hidden)) .banner { top: 6%; }
 #avatarPicker { position: fixed; inset: 0; z-index: 41; display: flex; align-items: center; justify-content: center; padding: 24px;
   background: radial-gradient(ellipse at center, rgba(30, 12, 60, 0.75), rgba(5, 2, 12, 0.92)); backdrop-filter: blur(4px); }
 #avatarPicker.hidden { display: none; }
-.ap-box { width: min(760px, 100%); height: auto; max-height: 100%; }
+.ap-box { width: min(900px, 100%); height: auto; max-height: 100%; }
 .ap-body { display: flex; gap: 18px; padding: 18px; flex-wrap: wrap; }
 .ap-stage { position: relative; flex: 1 1 280px; min-height: 300px; border-radius: 16px; background: radial-gradient(circle at 50% 40%, rgba(155, 255, 93, 0.12), rgba(0, 0, 0, 0.25)); }
 .ap-stage canvas { width: 100%; height: 100%; display: block; min-height: 300px; }
@@ -1322,3 +1322,36 @@ body { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .mm-grid { grid-template-columns: 1fr 1fr; }
   .mm-hero { display: none; }
 }
+
+/* ---------- Laboratório Clandestino: lendas, temporadas e galera ---------- */
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 6px; }
+.ap-side { overflow-y: auto; max-height: 72vh; padding-right: 4px; }
+.ap-side h4 small { font: 700 11px Nunito, sans-serif; color: #8f80b0; margin-left: 6px; }
+.ap-sp { position: relative; font-size: 12.5px; padding: 7px 8px; flex-wrap: wrap; }
+.ap-sp span { font-size: 19px; }
+.ap-sp small { display: block; width: 100%; font-size: 10px; color: #a898c8; line-height: 1.2; }
+.ap-sp.locked { opacity: 0.55; cursor: not-allowed; filter: grayscale(0.6); }
+.ap-sp.locked:hover { background: rgba(255, 255, 255, 0.04); }
+#emoteBar button.locked { opacity: 0.3; filter: grayscale(1); }
+#emoteBar button.locked:hover { transform: none; }
+.rank-badge.tiny { font-size: 10.5px; padding: 1px 7px; }
+.season-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; margin: 8px 0 2px; padding: 7px 10px; border-radius: 10px;
+  background: linear-gradient(90deg, rgba(182, 255, 61, 0.12), rgba(255, 255, 255, 0.02)); border: 1px solid rgba(182, 255, 61, 0.25); }
+.season-line b { font: 13px Bungee, sans-serif; color: #d8ff9e; }
+.season-line span { font: 800 12.5px Nunito, sans-serif; color: #efe6ff; }
+.season-line small { margin-left: auto; font: 700 11px Nunito, sans-serif; color: #a898c8; }
+.pf-seasons { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.pf-seasons div { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--rc); }
+.pf-seasons span { font-size: 18px; }
+.pf-seasons b { font: 12px Bungee, sans-serif; color: #fff; }
+.pf-seasons small { font: 700 11px Nunito, sans-serif; color: #c8b8e8; }
+.galera { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.galera li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border-left: 3px solid var(--rc); }
+.galera li.me { background: rgba(155, 255, 93, 0.1); box-shadow: inset 0 0 0 1px rgba(155, 255, 93, 0.35); }
+.galera li > b { width: 28px; font: 13px Bungee, sans-serif; color: #e9dcff; }
+.galera .gl-ic { font-size: 18px; }
+.galera .gl-name { flex: 1; min-width: 0; font: 800 13px Nunito, sans-serif; color: #f4eeff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.galera .gl-name small { display: block; font-weight: 700; font-size: 10.5px; color: #9f90c0; }
+.galera em { font: 800 12px Nunito, sans-serif; font-style: normal; color: #c8b8e8; }
+.galera.mini li { padding: 4px 8px; }
+.galera.mini .gl-name { font-size: 12px; }

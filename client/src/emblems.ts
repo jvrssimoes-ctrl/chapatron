@@ -135,6 +135,45 @@ const TG: Record<string, (c: C) => void> = {
     c.strokeStyle = solid(); c.lineWidth = 3.5; c.lineCap = 'round'; c.stroke();
     for (const [x0, y0, x1, y1] of [[50, 6, 50, 16], [24, 14, 30, 22], [76, 14, 70, 22]]) line(c, [x0, y0, x1, y1], solid(), 5);
   },
+  jardineiro: (c) => {
+    // broto num vasinho
+    shade(c, () => { c.moveTo(28, 62); c.lineTo(72, 62); c.lineTo(64, 90); c.lineTo(36, 90); c.closePath(); }, F(c, 62, 90), { lw: 6 });
+    line(c, [50, 62, 50, 36], solid(), 5);
+    shade(c, () => { c.moveTo(50, 44); c.bezierCurveTo(40, 20, 18, 24, 14, 30); c.bezierCurveTo(20, 46, 40, 50, 50, 44); }, F(c, 20, 50), { lw: 5 });
+    shade(c, () => { c.moveTo(50, 38); c.bezierCurveTo(58, 12, 80, 12, 86, 18); c.bezierCurveTo(82, 36, 62, 44, 50, 38); }, F(c, 12, 44), { lw: 5 });
+  },
+  muambeiro: (c) => {
+    // saco de muamba com cifrão
+    shade(c, () => { c.moveTo(38, 28); c.quadraticCurveTo(12, 52, 16, 72); c.quadraticCurveTo(20, 90, 50, 90); c.quadraticCurveTo(80, 90, 84, 72); c.quadraticCurveTo(88, 52, 62, 28); c.closePath(); }, F(c, 28, 90), { lw: 6, gloss: [34, 50, 8, 12] });
+    shade(c, () => { c.moveTo(36, 28); c.lineTo(30, 12); c.lineTo(50, 20); c.lineTo(70, 12); c.lineTo(64, 28); c.closePath(); }, F(c, 10, 30), { lw: 5 });
+    txt(c, '$', 50, 64, 30, HOLE);
+  },
+  pirado: (c) => {
+    // carinha com olhos em espiral
+    circle(c, 50, 50, 38, F(c), 6);
+    for (const cx of [36, 64]) {
+      const pts: number[] = [];
+      for (let k = 0; k <= 1.0001; k += 0.05) { const a = k * Math.PI * 4, r = 1 + k * 9; pts.push(cx + Math.cos(a) * r, 42 + Math.sin(a) * r); }
+      c.beginPath(); for (let i = 0; i < pts.length; i += 2) (i ? c.lineTo(pts[i], pts[i + 1]) : c.moveTo(pts[i], pts[i + 1]));
+      c.strokeStyle = HOLE; c.lineWidth = 3.5; c.lineCap = 'round'; c.stroke();
+    }
+    c.beginPath(); c.moveTo(32, 64); c.quadraticCurveTo(42, 74, 50, 64); c.quadraticCurveTo(58, 54, 68, 66); c.strokeStyle = HOLE; c.lineWidth = 5; c.stroke();
+  },
+  mutante: (c) => {
+    // frasco de laboratório borbulhando
+    shade(c, () => { c.moveTo(40, 12); c.lineTo(60, 12); c.lineTo(60, 38); c.lineTo(84, 80); c.quadraticCurveTo(88, 90, 76, 90); c.lineTo(24, 90); c.quadraticCurveTo(12, 90, 16, 80); c.lineTo(40, 38); c.closePath(); }, F(c, 12, 90), { lw: 6, gloss: [42, 20, 5, 10] });
+    c.save(); c.beginPath(); c.moveTo(30, 62); c.lineTo(70, 62); c.lineTo(84, 82); c.lineTo(16, 82); c.closePath(); c.fillStyle = HOLE; c.fill(); c.restore();
+    for (const [x, y, r] of [[38, 72, 5], [56, 68, 4], [62, 78, 3], [48, 50, 3.5], [54, 30, 3]]) circle(c, x, y, r, F(c, y - r, y + r), 3, false);
+  },
+  eletrico: (c) => bolt(c, 50, 50, 40, F(c, 10, 90)),
+  duelista: (c) => {
+    // duas espadas cruzadas
+    for (const s of [-1, 1]) T(c, 50, 52, s * 0.72, 1, () => {
+      shade(c, () => { c.moveTo(0, -44); c.lineTo(6, -36); c.lineTo(5, 14); c.lineTo(-5, 14); c.lineTo(-6, -36); c.closePath(); }, F(c, 8, 66), { lw: 5 });
+      shade(c, () => rr(c, -16, 14, 32, 7, 3), F(c, 60, 70), { lw: 5 });
+      shade(c, () => rr(c, -4, 21, 8, 16, 3), F(c, 66, 84), { lw: 5 });
+    });
+  },
   // ----- papéis -----
   r_tank: (c) => TG.tanque(c),
   r_fighter: (c) => {

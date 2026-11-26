@@ -1,12 +1,16 @@
 import { net } from './net';
 import { sfx } from './sfx';
 import { store } from './store';
+import { isUnlocked, unlockText } from './cosmetics';
 
 // Emotes rápidos: aparecem ao lado do jogador na lista e grandes sobre o tabuleiro.
 
 export const EMOTES: [string, string][] = [
   ['🌿', 'Bora!'], ['😂', 'Rindo'], ['😎', 'Tranquilo'], ['😡', 'Bravo'],
   ['😭', 'Chorando'], ['👏', 'Boa!'], ['🔥', 'Pegando fogo'], ['🤯', 'Bad trip'],
+  // extras (alguns liberados por conquistas, ver cosmetics.ts)
+  ['🍕', 'Larica'], ['💤', 'Sono'], ['🤑', 'Rico'], ['👑', 'Rei'],
+  ['🥶', 'Congelou'], ['🤡', 'Palhaçada'], ['💀', 'Morri'], ['🧪', 'Experimento'],
 ];
 
 let lastSent = 0;
@@ -14,15 +18,24 @@ let lastSent = 0;
 export function initEmotes() {
   const bar = document.getElementById('emoteBar');
   if (!bar) return;
-  bar.innerHTML = EMOTES.map(([e, n], i) => `<button data-e="${i}" title="${n}">${e}</button>`).join('');
+  renderEmoteBar(bar);
+  bar.addEventListener('mouseenter', () => renderEmoteBar(bar));
   bar.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button') as HTMLElement | null;
     if (!b) return;
+    if (b.classList.contains('locked')) { sfx('error'); return; }
     const now = performance.now();
     if (now - lastSent < 1200) return;
     lastSent = now;
     net.send({ t: 'emote', e: Number(b.dataset.e) });
   });
+}
+
+function renderEmoteBar(bar: HTMLElement) {
+  bar.innerHTML = EMOTES.map(([e, n], i) => {
+    const open = isUnlocked(`emote:${i}`);
+    return `<button data-e="${i}" class="${open ? '' : 'locked'}" title="${open ? n : `🔒 ${unlockText(`emote:${i}`)}`}">${e}</button>`;
+  }).join('');
 }
 
 /** onAvatar: mostra o emote em cima da Pequena Lenda (retorna false se ela não está na tela) */

@@ -98,7 +98,24 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     id: 'pirado', name: 'Pirados', kind: 'classe', style: 'horizontal', color: '#ff6b3d', icon: '🤪',
     breakpoints: [2, 4], values: [60, 110], scope: 'holders',
     desc: 'Batem sem olhar. A cada 3 ataques, acertam também todos os inimigos em volta do alvo com {v}% do Dano de Ataque.',
-  },};
+  },
+  // ---------- expansão "Laboratório Clandestino" ----------
+  mutante: {
+    id: 'mutante', name: 'Mutantes', kind: 'origem', style: 'vertical', color: '#b6ff3d', icon: '🧪',
+    breakpoints: [2, 4, 6], values: [4, 7, 12], scope: 'holders',
+    desc: 'Saíram do tubo de ensaio. A cada 3s de combate crescem: +{v}% de vida máxima, Dano de Ataque e Poder de Habilidade (até 5 vezes).',
+  },
+  eletrico: {
+    id: 'eletrico', name: 'Eletrizados', kind: 'origem', style: 'horizontal', color: '#ffe93d', icon: '⚡',
+    breakpoints: [2, 3], values: [2, 4], extra: [110, 190], scope: 'team',
+    desc: 'Ligados na tomada. A cada 4s um raio cai em {v} inimigos aleatórios, causando {x} de dano mágico e queimando 10 de mana.',
+  },
+  duelista: {
+    id: 'duelista', name: 'Duelistas', kind: 'classe', style: 'horizontal', color: '#ff8ac8', icon: '🤺',
+    breakpoints: [2, 4], values: [10, 16], scope: 'holders',
+    desc: 'Esquentam na luta. Cada ataque básico dá +{v}% de velocidade de ataque (acumula até 10 vezes).',
+  },
+};
 
 export const TRAIT_LIST = Object.values(TRAITS);
 
@@ -435,6 +452,78 @@ u({
   id: 'marretao', name: 'Marretão Supremo', cost: 5, role: 'fighter', traits: ['jardineiro', 'tanque', 'pirado'], mana: 80, startMana: 20,
   ability: { kind: 'marreta', fx: 'aoeStun', scale: 'ad', name: 'Marretada Final', desc: 'Desce a marreta: {v}% do Dano de Ataque no alvo e metade nos adjacentes, que são empurrados. Ganha +{x}% de Dano de Ataque permanente a cada uso.', values: [350, 370, 1200], values2: [15, 20, 50], color: '#ffd23f' },
   look: { color: '#7a4a2a', accent: '#ffd23f', body: 'tank', head: 'square', acc: ['crown', 'mohawk'] },
+});
+
+// ================= expansão "Laboratório Clandestino" =================
+// ---------- custo 1 ----------
+u({
+  id: 'gosminha', name: 'Gosminha', cost: 1, role: 'tank', traits: ['mutante', 'tanque'], mana: 70, startMana: 20,
+  ability: { kind: 'gosma', fx: 'shield', name: 'Capa de Gosma', desc: 'Se cobre de gosma: escudo de {v} por 4s e os inimigos adjacentes ficam grudados (−35% de vel. de ataque) por 3s.', values: [240, 340, 500], color: '#b6ff3d' },
+  look: { color: '#7ac83a', accent: '#e8ff9e', body: 'round', head: 'none', acc: ['goo', 'antenna'] },
+});
+u({
+  id: 'faisca', name: 'Faísca', cost: 1, role: 'adcarry', traits: ['eletrico', 'atirador'], mana: 50, startMana: 0,
+  ability: { kind: 'faisca', fx: 'multishot', scale: 'ad', name: 'Faísca Saltitante', desc: 'Dispara uma faísca: {v}% do Dano de Ataque no alvo, que salta para mais 2 inimigos (metade do dano cada).', values: [200, 210, 230], color: '#ffe93d' },
+  look: { color: '#3a4a6a', accent: '#ffe93d', body: 'tall', head: 'tv', acc: ['bolt', 'antenna'] },
+});
+u({
+  id: 'espadinha', name: 'Espadinha', cost: 1, role: 'fighter', traits: ['duelista', 'larica'], mana: 60, startMana: 10,
+  ability: { kind: 'estocada', fx: 'nuke', scale: 'ad', name: 'Estocada Tripla', desc: 'Três estocadas rápidas no alvo: {v}% do Dano de Ataque cada. Cada estocada conta como ataque para os Duelistas.', values: [125, 130, 145], color: '#ff8ac8' },
+  look: { color: '#c84a6a', accent: '#f0f4ff', body: 'box', head: 'dome', acc: ['sword', 'mohawk'] },
+});
+// ---------- custo 2 ----------
+u({
+  id: 'tentaculo', name: 'Tentáculo-X', cost: 2, role: 'fighter', traits: ['mutante', 'pirado'], mana: 70, startMana: 20,
+  ability: { kind: 'chicotada', fx: 'aoeStun', scale: 'ad', name: 'Chicotada Gosmenta', desc: 'Chicoteia o alvo e os 2 inimigos mais próximos dele: {v}% do Dano de Ataque e puxa cada um 1 hex para perto.', values: [210, 220, 240], color: '#c46bff' },
+  look: { color: '#6a3a8a', accent: '#b6ff3d', body: 'wide', head: 'dome', acc: ['tentacles', 'visor'] },
+});
+u({
+  id: 'pilhudo', name: 'Pilhudo', cost: 2, role: 'apcaster', traits: ['eletrico', 'mutante'], mana: 70, startMana: 20,
+  ability: { kind: 'descarga', fx: 'aoe', name: 'Descarga Total', desc: 'Solta toda a carga no maior grupo de inimigos: {v} de dano mágico em raio 1 e eles ficam sem ganhar mana por 2s.', values: [300, 450, 680], radius: 1, color: '#ffe93d' },
+  look: { color: '#d8b02a', accent: '#3a2a1a', body: 'tall', head: 'square', acc: ['bolt', 'goo'] },
+});
+u({
+  id: 'esgrimabot', name: 'Esgrimabot', cost: 2, role: 'assassin', traits: ['duelista', 'sorrateiro'], mana: 60, startMana: 10,
+  ability: { kind: 'finta', fx: 'nuke', scale: 'ad', name: 'Finta Perfeita', desc: 'Dá uma finta: fica inalvejável por 0,8s e golpeia o alvo com {v}% do Dano de Ataque. Ganha +{x}% de chance de crítico até o fim do combate.', values: [310, 320, 350], values2: [12, 15, 20], color: '#f0f4ff' },
+  look: { color: '#e8e8f0', accent: '#ff3d6b', body: 'tall', head: 'dome', acc: ['sword', 'visor', 'cape'] },
+});
+// ---------- custo 3 ----------
+u({
+  id: 'mutantao', name: 'Mutantão', cost: 3, role: 'tank', traits: ['mutante', 'ferrugem'], mana: 90, startMana: 40,
+  ability: { kind: 'inchar', fx: 'aoeStun', name: 'Inchaço Radioativo', desc: 'Incha: ganha {v} de vida máxima (e cura o mesmo) e empurra e atordoa os inimigos adjacentes por 1,25s.', values: [320, 460, 700], color: '#b6ff3d' },
+  look: { color: '#4a7a2a', accent: '#d8ff5d', body: 'tank', head: 'mushroom', acc: ['goo', 'visor'] },
+});
+u({
+  id: 'raioze', name: 'Raio-Zé', cost: 3, role: 'assassin', traits: ['eletrico', 'pirado'], mana: 60, startMana: 10,
+  ability: { kind: 'relampago', fx: 'aoeStun', scale: 'ad', name: 'Relâmpago Doido', desc: 'Vira relâmpago, salta no inimigo mais distante e explode: {v}% do Dano de Ataque nele e nos adjacentes, que ficam atordoados por 0,75s.', values: [230, 240, 270], color: '#ffe93d' },
+  look: { color: '#2a2a4a', accent: '#ffe93d', body: 'tall', head: 'square', acc: ['bolt', 'mohawk', 'cape'] },
+});
+u({
+  id: 'mosqueteira', name: 'Mosqueteira', cost: 3, role: 'adcarry', traits: ['duelista', 'atirador'], mana: 70, startMana: 10,
+  ability: { kind: 'rajadaduelo', fx: 'multishot', scale: 'ad', name: 'Rajada do Duelo', desc: 'Dispara 5 tiros rápidos no alvo: {v}% do Dano de Ataque cada. Os tiros podem ser críticos e contam como ataques.', values: [80, 85, 95], count: 5, color: '#ff8ac8' },
+  look: { color: '#3a5ab0', accent: '#ffd23f', body: 'round', head: 'dome', acc: ['sword', 'beanie'] },
+});
+// ---------- custo 4 ----------
+u({
+  id: 'hidra', name: 'Hidra de Laboratório', cost: 4, role: 'apcaster', traits: ['mutante', 'cosmico'], mana: 80, startMana: 30,
+  ability: { kind: 'cuspeacido', fx: 'multishot', name: 'Cuspe Ácido Triplo', desc: 'Cada cabeça cospe ácido num inimigo: {v} de dano mágico em 3 alvos, que perdem 30% da resistência mágica e ficam queimando por 3s.', values: [370, 555, 1400], count: 3, color: '#b6ff3d' },
+  look: { color: '#2a6a5a', accent: '#b6ff3d', body: 'wide', head: 'mushroom', acc: ['tentacles', 'goo', 'antenna'] },
+});
+u({
+  id: 'tesla', name: 'Torre Tesla', cost: 4, role: 'support', traits: ['eletrico', 'guru'], mana: 80, startMana: 30,
+  ability: { kind: 'campotesla', fx: 'teamShield', name: 'Campo Tesla', desc: 'Liga o campo elétrico: aliados a até 2 hexes ganham escudo de {v} por 4s e o inimigo mais próximo de cada um leva {x} de dano mágico.', values: [300, 450, 1400], values2: [120, 180, 600], color: '#ffe93d' },
+  look: { color: '#6a5a3a', accent: '#ffe93d', body: 'tall', head: 'none', acc: ['bolt', 'halo', 'antenna'] },
+});
+// ---------- custo 5 ----------
+u({
+  id: 'reimutante', name: 'Rei Mutante', cost: 5, role: 'fighter', traits: ['mutante', 'duelista', 'tanque'], mana: 80, startMana: 20,
+  ability: { kind: 'devorar', fx: 'drain', scale: 'ad', name: 'Devorar', desc: 'Abocanha o alvo: {v}% do Dano de Ataque e se cura no mesmo valor. Se abater, ganha +{x}% de vida máxima permanente.', values: [380, 400, 1300], values2: [15, 20, 50], color: '#b6ff3d' },
+  look: { color: '#3a6a1a', accent: '#ffd23f', body: 'tank', head: 'dome', acc: ['crown', 'tentacles', 'goo'] },
+});
+u({
+  id: 'maegosma', name: 'Mãe Gosma', cost: 5, role: 'apcaster', traits: ['mutante', 'brisa'], mana: 100, startMana: 30,
+  ability: { kind: 'chuvagosma', fx: 'meteor', name: 'Chuva de Gosma', desc: 'Faz chover gosma em TODOS os inimigos: {v} de dano mágico e −40% de vel. de ataque por 2,5s. Os aliados Mutantes crescem na hora.', values: [300, 450, 2200], color: '#b6ff3d' },
+  look: { color: '#5a8a2a', accent: '#ff7ad9', body: 'round', head: 'mushroom', acc: ['goo', 'halo', 'tentacles'] },
 });
 
 // ---------- invocações ----------

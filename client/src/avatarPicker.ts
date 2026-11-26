@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { AVATAR_COLORS, AVATAR_SPECIES, buildAvatar, lookKey, parseLook, type AvatarLook, type AvatarModel } from './three/avatar';
+import { AVATAR_COLORS, AVATAR_FACES, AVATAR_HATS, AVATAR_SPECIES, AVATAR_TRAILS, buildAvatar, lookKey, parseLook, type AvatarLook, type AvatarModel, type Cosmetic } from './three/avatar';
+import { isUnlocked, unlockText } from './cosmetics';
 import { net } from './net';
 import { sfx } from './sfx';
 import { store } from './store';
@@ -13,8 +14,16 @@ function lsSet(v: string) { try { localStorage.setItem(KEY, v); } catch { /* */ 
 
 export function myLook(): AvatarLook {
   const saved = lsGet();
-  if (saved) return parseLook(saved);
-  const l: AvatarLook = { species: 'nuvem', color: Math.floor(Math.random() * AVATAR_COLORS.length) };
+  if (saved) {
+    // se algo deixou de estar liberado (perfil apagado), volta pro padrão
+    const l = parseLook(saved);
+    if (!isUnlocked(`sp:${l.species}`)) l.species = 'nuvem';
+    if (!isUnlocked(`hat:${l.hat}`)) l.hat = '';
+    if (!isUnlocked(`face:${l.face}`)) l.face = '';
+    if (!isUnlocked(`trail:${l.trail}`)) l.trail = '';
+    return l;
+  }
+  const l: AvatarLook = { species: 'nuvem', color: Math.floor(Math.random() * AVATAR_COLORS.length), hat: '', face: '', trail: '' };
   lsSet(lookKey(l));
   return l;
 }
@@ -38,14 +47,30 @@ function setModel() {
   scene.add(model.root);
 }
 
+type Slot = 'sp' | 'hat' | 'face' | 'trail';
+const field: Record<Slot, keyof AvatarLook> = { sp: 'species', hat: 'hat', face: 'face', trail: 'trail' };
+function chips(slot: Slot, list: Cosmetic[]) {
+  return list.map((x) => {
+    const key = `${slot}:${x.id}`;
+    const open = isUnlocked(key);
+    const on = cur[field[slot]] === x.id;
+    return `<button class="ap-sp ${on ? 'on' : ''} ${open ? '' : 'locked'}" data-slot="${slot}" data-id="${x.id}" title="${open ? x.name : unlockText(key)}">
+      <span>${open ? x.icon : '🔒'}</span>${x.name}${open ? '' : `<small>${unlockText(key)}</small>`}</button>`;
+  }).join('');
+}
+
 function render() {
   if (!root) return;
   const sp = AVATAR_SPECIES.find((s) => s.id === cur.species)!;
-  root.querySelector('.ap-species')!.innerHTML = AVATAR_SPECIES.map((s) =>
-    `<button class="ap-sp ${s.id === cur.species ? 'on' : ''}" data-sp="${s.id}"><span>${s.icon}</span>${s.name}</button>`).join('');
+  root.querySelector('.ap-species')!.innerHTML = chips('sp', AVATAR_SPECIES);
   root.querySelector('.ap-colors')!.innerHTML = AVATAR_COLORS.map((c, i) =>
     `<button class="ap-c ${i === cur.color ? 'on' : ''}" data-c="${i}" style="--c:${c}" title="Cor ${i + 1}"></button>`).join('');
+  root.querySelector('.ap-hats')!.innerHTML = chips('hat', AVATAR_HATS);
+  root.querySelector('.ap-faces')!.innerHTML = chips('face', AVATAR_FACES);
+  root.querySelector('.ap-trails')!.innerHTML = chips('trail', AVATAR_TRAILS);
   root.querySelector('.ap-desc')!.textContent = sp.desc;
+  const all = [...AVATAR_SPECIES.map((x) => `sp:${x.id}`), ...AVATAR_HATS.map((x) => `hat:${x.id}`), ...AVATAR_FACES.map((x) => `face:${x.id}`), ...AVATAR_TRAILS.map((x) => `trail:${x.id}`)];
+  root.querySelector('.ap-count')!.textContent = `${all.filter(isUnlocked).length}/${all.length} liberados`;
 }
 
 function save() {
@@ -64,9 +89,12 @@ export function openPicker() {
       <div class="ap-body">
         <div class="ap-stage"><canvas></canvas><button class="ap-dance btn small" title="Dancinha">💃 Dançar</button></div>
         <div class="ap-side">
-          <h4>Espécie</h4><div class="ap-species"></div>
+          <h4>Espécie <small class="ap-count"></small></h4><div class="ap-species ap-grid"></div>
           <p class="ap-desc"></p>
           <h4>Cor</h4><div class="ap-colors"></div>
+          <h4>Chapéu</h4><div class="ap-hats ap-grid"></div>
+          <h4>Rosto</h4><div class="ap-faces ap-grid"></div>
+          <h4>Rastro</h4><div class="ap-trails ap-grid"></div>
           <button class="btn primary ap-ok">Pronto!</button>
         </div>
       </div>
@@ -77,7 +105,12 @@ export function openPicker() {
       if (el === root || el.closest('.gd-close') || el.closest('.ap-ok')) { closePicker(); return; }
       const sp = el.closest('.ap-sp') as HTMLElement | null;
       const c = el.closest('.ap-c') as HTMLElement | null;
-      if (sp) { cur = { ...cur, species: sp.dataset.sp as AvatarLook['species'] }; sfx('click'); setModel(); render(); save(); }
+      if (sp) {
+        if (sp.classList.contains('locked')) { sfx('error'); return; }
+        const slot = sp.dataset.slot as Slot;
+        cur = { ...cur, [field[slot]]: sp.dataset.id ?? '' } as AvatarLook;
+        sfx('click'); setModel(); render(); save();
+      }
       if (c) { cur = { ...cur, color: Number(c.dataset.c) }; sfx('click'); setModel(); render(); save(); }
       if (el.closest('.ap-dance')) { danceUntil = performance.now() + 1800; sfx('buff'); }
     });

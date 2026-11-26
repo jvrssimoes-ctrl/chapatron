@@ -630,6 +630,79 @@ export function buildRobot(look: RobotLook, role?: Role, star = 1): RobotModel {
     cape.position.set(0, bodyY - 0.06, backZ - 0.13);
     cape.rotation.x = 0.12;
   }
+  // ---- acessórios do Laboratório Clandestino ----
+  if (acc.has('goo')) {
+    // gosma escorrendo pelo corpo
+    const gooM = mat('#b6ff3d', '#5aa01a', { emissiveIntensity: 1.3, transparent: true, opacity: 0.88, roughness: 0.12, metalness: 0 });
+    const drops: [number, number, number, number][] = [
+      [-0.15, bodyY + bh * 0.36, frontZ - 0.015, 0.07], [0.15, bodyY + bh * 0.08, frontZ - 0.02, 0.055],
+      [0.02, bodyY - bh * 0.3, frontZ - 0.02, 0.06], [bw / 2 - 0.01, bodyY + 0.1, 0, 0.06], [-bw / 2 + 0.01, bodyY - 0.05, 0.03, 0.05],
+    ];
+    for (const [x, y, z, r] of drops) {
+      const d = add(mesh(geo('gooDrop', () => new THREE.SphereGeometry(1, 12, 10)), gooM));
+      d.scale.set(r, r * 1.6, r * 0.7);
+      d.position.set(x, y, z);
+      d.castShadow = false;
+    }
+    const pool = add(mesh(geo('gooPool', () => new THREE.CircleGeometry(0.36, 20)), gooM));
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.y = 0.012;
+    pool.castShadow = false;
+  }
+  if (acc.has('bolt')) {
+    const boltM = mat('#ffe93d', '#ffc800', { emissiveIntensity: 3.2, metalness: 0.2, roughness: 0.3 });
+    const boltGeo = () => geo('boltShape', () => {
+      const s = new THREE.Shape();
+      s.moveTo(0.03, 0.17); s.lineTo(-0.075, -0.005); s.lineTo(-0.008, -0.005); s.lineTo(-0.035, -0.17); s.lineTo(0.075, 0.03); s.lineTo(0.008, 0.03); s.closePath();
+      const g = new THREE.ExtrudeGeometry(s, { depth: 0.03, bevelEnabled: false });
+      g.translate(0, 0, -0.015);
+      return g;
+    });
+    const chest = add(mesh(boltGeo(), boltM));
+    chest.position.set(0, bodyY + bh * 0.02, frontZ + 0.02);
+    chest.scale.setScalar(0.8);
+    for (const sx of [-1, 1]) {
+      const bb = add(mesh(boltGeo(), boltM));
+      bb.position.set(sx * 0.13, bodyY + 0.3, backZ - 0.08);
+      bb.scale.setScalar(0.65);
+      bb.rotation.set(0, Math.PI, sx * 0.3);
+    }
+  }
+  if (acc.has('sword')) {
+    const up = arms[1]?.children.find((c) => c instanceof THREE.Group);
+    if (up) {
+      const sw = new THREE.Group();
+      const blade = add(mesh(geo('swordBlade', () => new THREE.BoxGeometry(0.035, 0.5, 0.012)), mat('#e8f0ff', '#9fb8ff', { metalness: 1, roughness: 0.12, emissiveIntensity: 0.6 })), sw);
+      blade.position.y = 0.3;
+      const tipS = add(mesh(geo('swordTip', () => new THREE.ConeGeometry(0.025, 0.07, 4)), mChrome), sw);
+      tipS.position.y = 0.585;
+      tipS.rotation.y = Math.PI / 4;
+      const guard = add(mesh(geo('swordGuard', () => new THREE.BoxGeometry(0.16, 0.025, 0.04)), mAccent), sw);
+      guard.position.y = 0.045;
+      const grip = add(mesh(geo('swordGrip', () => new THREE.CylinderGeometry(0.018, 0.018, 0.1, 8)), mDark), sw);
+      grip.position.y = -0.01;
+      sw.position.set(0, -0.38, 0.06);
+      sw.rotation.x = Math.PI / 2 - 0.25;
+      up.add(sw);
+    }
+  }
+  if (acc.has('tentacles')) {
+    const tm = mat(new THREE.Color(look.color).lerp(new THREE.Color(look.accent), 0.4), undefined, { roughness: 0.38, metalness: 0.05 });
+    const tgeo = geo('tentacle', () => new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.09, 0.1, -0.12), new THREE.Vector3(0.22, 0.08, -0.2), new THREE.Vector3(0.32, 0.22, -0.2),
+    ]), 14, 0.034, 6, false));
+    const sucker = mat(look.accent, look.accent, { emissiveIntensity: 1.4 });
+    for (const [sx, k] of [[-1, 1], [1, 1], [-1, 0.75], [1, 0.75]] as const) {
+      const grp = new THREE.Group();
+      grp.position.set(sx * 0.12, bodyY + (k === 1 ? bh * 0.25 : -bh * 0.05), backZ - 0.04);
+      add(mesh(tgeo, tm), grp);
+      const tip2 = add(mesh(geo('tentTip', () => new THREE.SphereGeometry(0.036, 10, 8)), sucker), grp);
+      tip2.position.set(0.32, 0.22, -0.2);
+      grp.scale.set(sx * k, k, k);
+      grp.userData.sway = true;
+      rig.add(grp);
+    }
+  }
   // bong ao lado
   if (acc.has('bong')) {
     const glass = mat('#9fe8ff', '#2a6f80', { transparent: true, opacity: 0.45, metalness: 0, roughness: 0.05, emissiveIntensity: 0.6, depthWrite: false });

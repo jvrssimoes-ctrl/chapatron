@@ -12,7 +12,7 @@ import { avatarHtml, confetti, gameoverHtml, initMenuFx, initParade } from './sc
 import { closeGuide, isGuideOpen, openGuide, toggleGuide } from './guide';
 import { checkTips } from './tips';
 import { initEmotes, showEmote } from './emotes';
-import { closeProfile, isProfileOpen, menuCardHtml, myLp, onStarUp, openProfile, trackCombat, trackGameOver, trackState } from './profile';
+import { closeProfile, isProfileOpen, menuCardHtml, myLp, onStarUp, openProfile, seeFriends, takeSeasonRollover, trackCombat, trackFriends, trackGameOver, trackState } from './profile';
 import { startMenuHero } from './menuHero';
 import { rankBadge } from './rank';
 import { closeInspect, initInspect, inspect, isInspectOpen } from './inspect';
@@ -76,13 +76,13 @@ function myName() {
 
 $('createBtn').onclick = () => {
   sfx('click');
-  net.send({ t: 'create', name: myName(), token: token!, avatar: myLookKey() });
+  net.send({ t: 'create', name: myName(), token: token!, avatar: myLookKey(), lp: myLp() });
 };
 $('joinBtn').onclick = () => {
   sfx('click');
   const room = codeInput.value.trim().toUpperCase();
   if (room.length !== 4) { $('menuError').textContent = 'O código da sala tem 4 letras.'; return; }
-  net.send({ t: 'join', name: myName(), room, token: token!, avatar: myLookKey() });
+  net.send({ t: 'join', name: myName(), room, token: token!, avatar: myLookKey(), lp: myLp() });
 };
 codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
 
@@ -110,6 +110,7 @@ function renderLobby() {
       p.id === store.youId ? '<i class="tag you">Você</i>' : '',
       p.isBot ? '<i class="tag bot">🤖 Bot</i>' : '',
       !p.connected && !p.isBot ? '<i class="tag off">📴</i>' : '',
+      p.isBot ? '' : rankBadge(p.lp ?? 0, 'tiny'),
     ].join('');
     return `<div class="lp ${p.id === store.youId ? 'me' : ''}" style="animation-delay:${i * 0.04}s">
       ${avatarHtml(p.name)}
@@ -180,6 +181,8 @@ function syncMenu() {
   $('menuCard').innerHTML = menuCardHtml();
   $('menuTip').innerHTML = `<span>💡 Dica</span>${esc(MENU_TIPS[Math.floor(Math.random() * MENU_TIPS.length)])}`;
   startMenuHero($<HTMLCanvasElement>('menuHeroCv'), () => screen === 'menu' && !document.hidden);
+  const rolled = takeSeasonRollover();
+  if (rolled) setTimeout(() => banner(`<span class="bn-stars">📅</span><b>Nova temporada!</b><small>A Temporada ${rolled.n} acabou. Seus pontos foram reiniciados em parte. Bora subir de novo!</small>`, 'gold', 4200), 800);
 }
 syncRank();
 $('avatarBtn').onclick = () => openPicker();
@@ -223,12 +226,13 @@ net.on((msg) => {
     case 'joined':
       store.youId = msg.youId;
       store.room = msg.room;
-      net.setRejoin({ t: 'join', name: myName(), room: msg.room, token: token!, avatar: myLookKey() });
+      net.setRejoin({ t: 'join', name: myName(), room: msg.room, token: token!, avatar: myLookKey(), lp: myLp() });
       history.replaceState(null, '', `?sala=${msg.room}`);
       $('menuError').textContent = '';
       break;
     case 'lobby':
       store.lobby = msg;
+      seeFriends(msg.players);
       store.state = null;
       store.combat = null;
       show('lobby');
@@ -284,6 +288,7 @@ net.on((msg) => {
       const isHost = store.state?.hostId === store.youId;
       const total = msg.mode === 'dupla' ? new Set(msg.ranking.map((r) => r.team)).size : msg.ranking.length;
       const rank = me ? trackGameOver(me.place, total, msg.mode) : null;
+      if (me) trackFriends(msg.ranking, me.place);
       syncRank();
       $('gameover').innerHTML = gameoverHtml(msg.ranking, store.youId, isHost, esc, { mode: msg.mode, rank });
       $('gameover').classList.remove('hidden');
@@ -382,7 +387,7 @@ initMenuFx();
 show('menu');
 if (urlRoom && nameInput.value) {
   // volta direto pra sala do link (ex.: recarregou a página)
-  net.send({ t: 'join', name: myName(), room: urlRoom.toUpperCase(), token: token!, avatar: myLookKey() });
+  net.send({ t: 'join', name: myName(), room: urlRoom.toUpperCase(), token: token!, avatar: myLookKey(), lp: myLp() });
 }
 
 function loop(now: number) {
