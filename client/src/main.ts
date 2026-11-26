@@ -405,3 +405,9 @@ function bossWarning(round: number, fight: boolean) {
     banner(`${img}<small>⚠️ chefão na próxima luta</small><b>${esc(b.boss.title)}</b><em>${esc(b.boss.desc)}</em>`, 'silver', 4200).classList.add('boss');
   }
 }
+
+// a placa de vídeo caiu (falta de memória): o jogo baixou a qualidade sozinho
+window.addEventListener('chapatron:gfx', (e) => {
+  const q = (e as CustomEvent<string>).detail;
+  toast(`Tela piscou? Baixei os gráficos para ${q === 'medio' ? 'Médio' : 'Baixo'} pra rodar liso.`, 'info');
+});

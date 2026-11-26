@@ -168,6 +168,7 @@ export class Scene3D {
   private pops: Pop[] = [];
   private carDeco: { ring: THREE.Mesh; barrier: THREE.Mesh; pole: THREE.Group } | null = null;
   private lastPhase = '';
+  private contextLost = false;
   private shots: Shot[] = [];
   private shotMat = new THREE.MeshBasicMaterial({ color: '#ffe08a' });
   private introKey = '';
@@ -185,6 +186,18 @@ export class Scene3D {
     this.renderer.toneMappingExposure = 1.05;
     const gl = this.renderer.domElement;
     gl.className = 'stage-layer';
+    // se a placa de vídeo derrubar o WebGL (falta de memória), baixa a qualidade sozinho para não repetir
+    gl.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.contextLost = true; });
+    gl.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      const next: Quality | null = this.quality === 'alto' ? 'medio' : this.quality === 'medio' ? 'baixo' : null;
+      if (!next) return;
+      this.quality = next;
+      saveQuality(next);
+      this.post.setQuality(next);
+      this.layout();
+      window.dispatchEvent(new CustomEvent('chapatron:gfx', { detail: next }));
+    });
     container.appendChild(gl);
     this.overlay = document.createElement('canvas');
     this.overlay.className = 'stage-layer';
@@ -440,7 +453,8 @@ export class Scene3D {
   // =================== layout / câmera ===================
 
   layout() {
-    this.dpr = this.quality === 'alto' ? Math.min(2, window.devicePixelRatio || 1) : 1;
+    // Ultra em tela de alta densidade: no máximo 1.5x (2x com MSAA estoura a memória de vídeo)
+    this.dpr = this.quality === 'alto' ? Math.min(1.5, window.devicePixelRatio || 1) : 1;
     this.W = window.innerWidth;
     this.H = window.innerHeight;
     this.renderer.setPixelRatio(this.dpr);
@@ -790,18 +804,59 @@ export class Scene3D {
     return 1.65 + (star - 1) * 0.22 + (cost - 1) * 0.06;
   }
 
+  // ---------- reaproveitamento de modelos ----------
+  // Montar um robô custa ~20 ms; no começo de cada combate aparecem 15-20 de uma vez.
+  // Por isso os modelos que saem de cena voltam para um estoque e são reusados, e
+  // quando é preciso montar novos há um limite de tempo por frame (o resto vem nos próximos).
+  private modelPool = new Map<string, RobotModel[]>();
+  private poolCount = 0;
+  private buildBudgetMs = 0;
+  private static readonly POOL_MAX = 48;
+  private static readonly POOL_PER_KEY = 8;
+  private static readonly BUILD_MS_PER_FRAME = 14;
+
+  private acquireModel(defId: string, star: number): RobotModel | null {
+    const key = `${defId}:${star}`;
+    const list = this.modelPool.get(key);
+    if (list?.length) { this.poolCount--; return list.pop()!; }
+    if (this.buildBudgetMs <= 0) return null;
+    const t0 = performance.now();
+    const udef = UNITS[defId];
+    const model = buildRobot(udef.look, udef.role, star);
+    this.buildBudgetMs -= performance.now() - t0;
+    return model;
+  }
+
+  private releaseModel(defId: string, star: number, m: RobotModel, ghost: boolean) {
+    this.scene.remove(m.root);
+    const key = `${defId}:${star}`;
+    const list = this.modelPool.get(key) ?? [];
+    if (this.poolCount >= Scene3D.POOL_MAX || list.length >= Scene3D.POOL_PER_KEY) { disposeRobot(m); return; }
+    // volta ao estado de fábrica
+    m.mats.forEach((mat, i) => {
+      mat.emissive.copy(m.baseEmissive[i]);
+      if (ghost) { mat.transparent = false; mat.opacity = 1; mat.needsUpdate = true; }
+    });
+    m.stunRing.visible = false;
+    m.root.visible = true;
+    list.push(m);
+    this.modelPool.set(key, list);
+    this.poolCount++;
+  }
+
   private syncUnits(list: Desired[], now: number, dt: number) {
-    for (const uv of this.units.values()) uv.seen = false;
-    this.keyInfo.clear();
+    this.buildBudgetMs = Scene3D.BUILD_MS_PER_FRAME;
+    // primeiro tira o que saiu de cena (os modelos voltam pro estoque e já servem aos novos)
+    const want = new Set(list.map((d) => d.key));
+    for (const uv of [...this.units.values()]) if (!want.has(uv.key)) this.removeUnit(uv);
     for (const d of list) {
-      this.keyInfo.set(d.key, d.info);
       let uv = this.units.get(d.key);
       let prevStar: number | undefined;
-      // o visual muda com a estrela: reconstrói o modelo ao evoluir
+      // o visual muda com a estrela: troca o modelo ao evoluir
       if (uv && (uv.defId !== d.defId || uv.star !== d.star)) { if (uv.defId === d.defId) prevStar = uv.star; this.removeUnit(uv); uv = undefined; }
       if (!uv) {
-        const udef = UNITS[d.defId];
-        const model = buildRobot(udef.look, udef.role, d.star);
+        const model = this.acquireModel(d.defId, d.star);
+        if (!model) continue; // sem tempo neste frame: aparece no próximo
         model.root.userData.key = d.key;
         const spinners: THREE.Object3D[] = [];
         const swayers: THREE.Object3D[] = [];
@@ -822,15 +877,12 @@ export class Scene3D {
       uv.star = d.star;
       this.animateUnit(uv, d, now, dt);
     }
-    for (const uv of [...this.units.values()]) if (!uv.seen) this.removeUnit(uv);
   }
 
   private removeUnit(uv: UV) {
-    this.scene.remove(uv.model.root);
-    disposeRobot(uv.model);
+    this.releaseModel(uv.defId, uv.star, uv.model, !!uv.ghost);
     this.units.delete(uv.key);
   }
-
   private starBurst(pos: THREE.Vector3, star: number) {
     const color = star >= 3 ? '#ffd23f' : '#e3ecf7';
     // coluna de luz subindo + anel no chão
